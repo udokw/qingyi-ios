@@ -89,13 +89,24 @@ targets:
           # Pachi 里存在同名头文件 (random.h / util.h), 放进 Headers 阶段会撞输出路径.
           # 头文件靠相对路径 include, 不需要参与构建.
           - "**/*.h"
-          # josekifix 依赖 JOSEKIFIX 宏, 未启用时这些 .c 无法独立编译;
-          # engine.c 里的引用也都在 #ifdef JOSEKIFIX 内.
+          # 以下源码在官方 Makefile 里只在打开对应特性宏时才编译;
+          # 我们不启用这些特性 (NETWORK / DISTRIBUTED / JOSEKIFIX / DCNN /
+          # FIFO / PLUGINS / BOARD_TESTS / EXTRA_ENGINES), 它们依赖的头文件
+          # 会退化成占位宏, 直接编译必然报错.
           - "josekifix/**"
-          # 分布式引擎同样依赖 DISTRIBUTED 宏 (tree 结构的 htable/hbits),
-          # 未启用时这两块源码无法单独编译.
           - "distributed/**"
+          - "dcnn/**"
           - "uct/slave.c"
+          - "uct/plugins.c"
+          - "uct/plugins/**"
+          - "network.c"
+          - "fifo.c"
+          - "engines/external.c"
+          - "pattern/patternscan.c"
+          - "t-unit/test_undo.c"
+          - "t-unit/board_regtest.c"
+          - "t-unit/moggy_regtest.c"
+          - "t-unit/spatial_regtest.c"
       - path: QingYi/Engines/PachiBridge.cpp
       - path: QingYi/Engines/PachiBridge.h
     settings:
