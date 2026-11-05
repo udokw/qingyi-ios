@@ -140,7 +140,7 @@ struct MainView: View {
     private var titleRow: some View {
         HStack(spacing: 10) {
             Text("清弈")
-                .font(.system(size: 37, weight: .bold, design: .serif))
+                .font(.qySerif(37, weight: .bold))
                 .tracking(theme.isHara ? 1.8 : 6.6)
                 .foregroundColor(theme.title)
             if theme.isHara {
@@ -171,7 +171,7 @@ struct MainView: View {
             app.kind = kind
         } label: {
             Text(title)
-                .font(.system(size: 15, weight: .bold, design: .serif))
+                .font(.qySerif(15, weight: .bold))
                 .tracking(1.2)
                 .foregroundColor(selected ? theme.primaryText : theme.sub)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -239,13 +239,13 @@ struct MainView: View {
         Button(action: action) {
             HStack(spacing: 0) {
                 Text(theme.prefixes[index])
-                    .font(.system(size: 15, weight: .regular, design: .serif))
+                    .font(.qySerif(15))
                     .foregroundColor(theme.prefixColor)
                     .frame(width: 48, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .font(.qySerif(18, weight: .bold))
                         .foregroundColor(theme.entryTitle)
                     Text(desc)
                         .font(.system(size: 13))
@@ -273,13 +273,13 @@ struct MainView: View {
         Button(action: action) {
             HStack(spacing: 0) {
                 Text(theme.prefixes[index])
-                    .font(.system(size: 15, weight: .regular, design: .serif))
+                    .font(.qySerif(15))
                     .foregroundColor(theme.prefixColor)
                     .frame(width: 48, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .font(.qySerif(18, weight: .bold))
                         .foregroundColor(theme.entryTitle)
                     Text(desc)
                         .font(.system(size: 13))
@@ -412,7 +412,7 @@ struct GoConfigDialog: View {
                     .foregroundColor(theme.sub)
                     .frame(width: 44, alignment: .leading)
                 Text("清弈 · 棋形引擎")
-                    .font(.system(size: 15, weight: .semibold, design: .serif))
+                    .font(.qySerif(15, weight: .semibold))
                     .foregroundColor(theme.title)
                 Text("内置")
                     .font(.system(size: 10))
@@ -537,7 +537,7 @@ struct XiangqiConfigDialog: View {
                     .foregroundColor(theme.sub)
                     .frame(width: 44, alignment: .leading)
                 Text("清弈 · Alpha-Beta 引擎")
-                    .font(.system(size: 15, weight: .semibold, design: .serif))
+                    .font(.qySerif(15, weight: .semibold))
                     .foregroundColor(theme.title)
                 Spacer(minLength: 0)
                 Text("内置")

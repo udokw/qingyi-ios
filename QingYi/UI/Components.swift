@@ -247,7 +247,7 @@ struct DialogScaffold<Content: View>: View {
                             .frame(width: 9, height: 9)
                     }
                     Text(title)
-                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .font(.qySerif(18, weight: .bold))
                         .foregroundColor(theme.title)
                         .tracking(1)
                     Spacer(minLength: 0)

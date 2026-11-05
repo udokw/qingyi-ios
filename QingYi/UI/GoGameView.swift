@@ -105,7 +105,7 @@ struct GoGameView: View {
 
             HStack(spacing: 8) {
                 Text(model.leftTitle)
-                    .font(.system(size: 18, weight: .bold, design: .serif))
+                    .font(.qySerif(18, weight: .bold))
                     .foregroundColor(theme.title)
                     .lineLimit(1)
                 Spacer(minLength: 8)
@@ -121,7 +121,7 @@ struct GoGameView: View {
                 Spacer(minLength: 0)
             }
             Text(model.monumentStatus)
-                .font(.system(size: 19, weight: .bold, design: .serif))
+                .font(.qySerif(19, weight: .bold))
                 .foregroundColor(theme.title)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
@@ -161,7 +161,7 @@ struct GoGameView: View {
                     + Text("行棋").foregroundColor(theme.title)
             }
         }
-        .font(.system(size: 17, weight: .regular, design: .serif))
+        .font(.qySerif(17))
         .lineLimit(1)
         .minimumScaleFactor(0.65)
     }

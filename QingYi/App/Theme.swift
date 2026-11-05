@@ -12,6 +12,13 @@ extension Color {
     }
 }
 
+extension Font {
+    /// 安卓端使用 serif 字体（宋体），iOS 指定宋体以贴近
+    static func qySerif(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom("Songti SC", size: size).weight(weight)
+    }
+}
+
 enum ThemeID: String, CaseIterable, Identifiable {
     case hara
     case monument

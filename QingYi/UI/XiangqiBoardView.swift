@@ -145,7 +145,7 @@ struct XiangqiBoardView: View {
 
         // 楚河汉界
         let riverY = top + CGFloat(4.5) * m.cell
-        let riverFont = Font.system(size: m.cell * 0.62, weight: .regular, design: .serif)
+        let riverFont = Font.qySerif(m.cell * 0.62)
         context.draw(Text("楚 河")
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
@@ -198,7 +198,7 @@ struct XiangqiBoardView: View {
                        with: .color(side.opacity(0.28)), lineWidth: 0.7)
 
         context.draw(Text(XiangqiGame.pieceName(piece))
-                        .font(.system(size: m.cell * 0.62, weight: .bold, design: .serif))
+                        .font(.qySerif(m.cell * 0.62, weight: .bold))
                         .foregroundColor(side),
                      at: c, anchor: .center)
     }
