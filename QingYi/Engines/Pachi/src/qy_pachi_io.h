@@ -23,10 +23,13 @@ int qy_pachi_io_write(const char *data, int len);
 int qy_pachi_io_printf(const char *fmt, ...);
 int qy_pachi_io_vprintf(const char *fmt, va_list ap);
 int qy_pachi_io_putchar(int c);
-int qy_pachi_io_fputs(const char *str);
+int qy_pachi_io_fputs(const char *str, FILE *stream);
 int qy_pachi_io_fprintf(FILE *stream, const char *fmt, ...);
 int qy_pachi_io_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
 int qy_pachi_io_fflush(FILE *stream);
+/* Pachi 内部出错时会 die() -> exit(); 换成 longjmp 回引擎线程,
+ * 避免把整个 App 一起带走. */
+void qy_pachi_io_exit(int code);
 
 #ifdef __cplusplus
 }
@@ -38,10 +41,12 @@ int qy_pachi_io_fflush(FILE *stream);
 #define printf(...)                  qy_pachi_io_printf(__VA_ARGS__)
 #define vprintf(fmt, ap)             qy_pachi_io_vprintf((fmt), (ap))
 #define putchar(c)                   qy_pachi_io_putchar((c))
-#define fputs(str, stream)           qy_pachi_io_fputs((str))
+#define fputs(str, stream)           qy_pachi_io_fputs((str), (stream))
 #define fprintf(stream, ...)         qy_pachi_io_fprintf((stream), __VA_ARGS__)
 #define fwrite(ptr, size, n, stream) qy_pachi_io_fwrite((ptr), (size), (n), (stream))
 #define fflush(stream)               qy_pachi_io_fflush((stream))
+#define exit(code)                   qy_pachi_io_exit((code))
+#define _exit(code)                  qy_pachi_io_exit((code))
 #endif
 
 #endif /* QY_PACHI_IO_H */

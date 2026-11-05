@@ -14,6 +14,8 @@
 #include <chrono>
 #include <climits>
 #include <condition_variable>
+#include <csetjmp>
+#include <setjmp.h>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +24,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 extern "C" int qy_pachi_main(int argc, char *argv[]);
@@ -39,6 +42,20 @@ struct QyPachiEngine {
 
 namespace {
 QyPachiEngine *g_engine = nullptr;
+
+// Pachi 在致命错误时会调用 exit(); 用 longjmp 把它挡在引擎线程里.
+sigjmp_buf g_jump;
+volatile bool g_jumpReady = false;
+
+void runPachiMain(int argc, char **argv) {
+    if (sigsetjmp(g_jump, 1) == 0) {
+        g_jumpReady = true;
+        qy_pachi_main(argc, argv);
+        g_jumpReady = false;
+    } else {
+        g_jumpReady = false;
+    }
+}
 }
 
 namespace {
@@ -112,7 +129,10 @@ extern "C" int qy_pachi_io_putchar(int c) {
     return c;
 }
 
-extern "C" int qy_pachi_io_fputs(const char *str) {
+extern "C" int qy_pachi_io_fputs(const char *str, FILE *stream) {
+    if (str != nullptr && stream != nullptr && stream != stdout) {
+        return fputs(str, stream);
+    }
     if (str != nullptr) {
         appendOutput(str, static_cast<int>(strlen(str)));
     }
@@ -152,6 +172,14 @@ extern "C" int qy_pachi_io_fflush(FILE *stream) {
         return fflush(stream);
     }
     return 0;
+}
+
+extern "C" void qy_pachi_io_exit(int code) {
+    if (g_jumpReady) {
+        g_jumpReady = false;
+        siglongjmp(g_jump, code != 0 ? code : 1);
+    }
+    _exit(code);
 }
 
 extern "C" int qy_pachi_io_getline(char *buf, int size) {
@@ -218,6 +246,9 @@ extern "C" QyPachiEngine *qy_pachi_create(const char *dataDir, double secondsPer
     args.push_back(timeBuffer);
     args.push_back("-d");
     args.push_back("0");
+    // 不加载 joseki 库: 定式文件没打进包, 缺失时 Pachi 会直接 die().
+    // 1-6 级用不到定式, 关掉更稳.
+    args.push_back("--nojoseki");
 
     QyPachiEngine *e = new QyPachiEngine();
     g_engine = e;
@@ -229,7 +260,7 @@ extern "C" QyPachiEngine *qy_pachi_create(const char *dataDir, double secondsPer
             cargs.push_back(const_cast<char *>(s.c_str()));
         }
         cargs.push_back(nullptr);
-        qy_pachi_main(static_cast<int>(args.size()), cargs.data());
+        runPachiMain(static_cast<int>(args.size()), cargs.data());
 
         std::lock_guard<std::mutex> lock(e->mutex);
         e->closed = true;

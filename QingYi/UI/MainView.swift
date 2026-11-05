@@ -422,7 +422,7 @@ struct GoConfigDialog: View {
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
                 Spacer(minLength: 0)
             }
-            Text("等级 1-6 由 Pachi 引擎驱动，7-10 由 KataGo 神经网络驱动\n均为进程内静态链接，无需联网")
+            Text("等级 1-3 由本地 AI 感知驱动，4-6 由 Pachi 引擎驱动，7-10 由 KataGo 神经网络驱动\n均为进程内运行，无需联网")
                 .font(.system(size: 11))
                 .foregroundColor(theme.foot)
                 .lineSpacing(3)

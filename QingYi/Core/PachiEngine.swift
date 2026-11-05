@@ -5,8 +5,8 @@ final class PachiEngine {
 
     static let shared = PachiEngine()
 
-    /// 该档位及以下使用 Pachi, 更高档位改用 KataGo
-    static let maximumLevel = 6
+    /// 该档位起使用 Pachi; 更低档位用本地 AI 感知, 更高档位改用 KataGo
+    static let minimumLevel = 4
 
     private var handle: OpaquePointer?
     private var readyLevel = 0
@@ -167,9 +167,6 @@ final class PachiEngine {
     /// 每手思考时间 (秒), 档位越低越快
     static func timePerMove(level: Int) -> Double {
         switch level {
-        case 1: return 0.30
-        case 2: return 0.50
-        case 3: return 0.80
         case 4: return 1.20
         case 5: return 1.80
         default: return 2.50

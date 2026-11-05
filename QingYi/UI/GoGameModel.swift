@@ -61,13 +61,14 @@ final class GoGameModel: ObservableObject {
             }
         }
 
-        // 高档位用 KataGo, 低档位用 Pachi: 提前在后台加载引擎
+        // 提前在后台加载对应档位的引擎:
+        // 1-3 级用本地 AI 感知 (无需预加载), 4-6 级用 Pachi, 7-10 级用 KataGo
         if setup.mode == .ai {
             if setup.level >= KataGoEngine.minimumLevel {
                 DispatchQueue.global(qos: .utility).async {
                     KataGoEngine.shared.preload()
                 }
-            } else {
+            } else if setup.level >= PachiEngine.minimumLevel {
                 let level = setup.level
                 DispatchQueue.global(qos: .utility).async {
                     PachiEngine.shared.preload(level: level)
@@ -206,7 +207,7 @@ final class GoGameModel: ObservableObject {
                 case .unavailable:
                     break
                 }
-            } else {
+            } else if level >= PachiEngine.minimumLevel {
                 switch PachiEngine.shared.bestMove(size: size, komi: komi, history: history,
                                                    board: board, color: color, level: level) {
                 case .move(let point):
