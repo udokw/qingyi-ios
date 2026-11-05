@@ -100,6 +100,9 @@ targets:
           - NDEBUG=1
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/QingYi/Engines/Pachi/src"
+        # Pachi 与 KataGo 有同名头文件 (board.h 等); 关闭 header map
+        # 避免 "board.h" 被解析到 KataGo 的头文件.
+        USE_HEADERMAP: "NO"
         SKIP_INSTALL: "YES"
         PRODUCT_NAME: Pachi
 
