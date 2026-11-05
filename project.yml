@@ -103,6 +103,10 @@ targets:
         # Pachi 与 KataGo 有同名头文件 (board.h 等); 关闭 header map
         # 避免 "board.h" 被解析到 KataGo 的头文件.
         USE_HEADERMAP: "NO"
+        # 第三方老 C 代码不做警告升级为错误处理
+        GCC_WARN_ABOUT_RETURN_TYPE: "NO"
+        OTHER_CFLAGS:
+          - "-Wno-error"
         SKIP_INSTALL: "YES"
         PRODUCT_NAME: Pachi
 
