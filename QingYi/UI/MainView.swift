@@ -8,6 +8,8 @@ struct MainView: View {
     @State private var showGoConfig = false
     @State private var showXqConfig = false
     @State private var showLibrary = false
+    @State private var pendingGo: GoSetup?
+    @State private var pendingXQ: XiangqiSetup?
 
     private var theme: Theme { app.theme }
 
@@ -15,26 +17,45 @@ struct MainView: View {
         ZStack {
             PaperBackground(theme: theme)
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    header
-                    if theme.isHara {
-                        haraTitle
-                    } else {
-                        monumentTitle
+            GeometryReader { geo in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        themeRow
+                        Spacer().frame(height: 12)
+
+                        if theme.isHara {
+                            OrnamentRow(theme: theme)
+                                .padding(.top, 22)
+                        } else {
+                            DomeMark()
+                                .padding(.top, 20)
+                        }
+
+                        titleRow
+                            .padding(.top, 12)
+
+                        Text("多引擎 · 围棋与象棋")
+                            .font(.system(size: 14, weight: .regular, design: .serif))
+                            .tracking(1.7)
+                            .foregroundColor(theme.sub)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 10)
+                            .padding(.bottom, 18)
+
+                        segmented
+                            .padding(.top, theme.isHara ? 71 : 18)
+                            .padding(.bottom, 12)
+
+                        entries
+
+                        Spacer(minLength: 30)
+
+                        footer
                     }
-                    segmented
-                        .padding(.top, theme.isHara ? 18 : 22)
-                    entries
-                        .padding(.top, theme.isHara ? 6 : 20)
-                    Spacer(minLength: 18)
-                    footer
-                        .padding(.bottom, 10)
+                    .frame(minHeight: geo.size.height, alignment: .top)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
                 }
-                .frame(maxWidth: 560)
-                .padding(.horizontal, 24)
-                .padding(.top, 6)
-                .frame(maxWidth: .infinity)
             }
 
             if showGoConfig {
@@ -94,242 +115,218 @@ struct MainView: View {
         }
     }
 
-    @State private var pendingGo: GoSetup?
-    @State private var pendingXQ: XiangqiSetup?
+    // MARK: - 主题切换（右上角）
 
-    // MARK: - 头部
-
-    private var header: some View {
-        HStack {
-            if theme.isHara {
-                Text("清 弈 · 棋 道")
-                    .font(.system(size: 11, weight: .regular, design: .serif))
-                    .tracking(3)
-                    .foregroundColor(theme.sub)
-            } else {
-                Text("QINGYI")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(3)
-                    .foregroundColor(theme.foot)
-            }
-            Spacer()
+    private var themeRow: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
             Button {
                 app.toggleTheme()
             } label: {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(theme.accent)
-                        .frame(width: 6, height: 6)
-                    Text("主题 · \(theme.name)")
-                        .font(.system(size: 12, weight: .regular, design: .serif))
-                        .foregroundColor(theme.sub)
-                }
-                .padding(.vertical, 5)
-                .contentShape(Rectangle())
+                Text("主题 · \(theme.name)")
+                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .foregroundColor(theme.sub)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .padding(.top, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
     }
 
-    // MARK: - 标题区
+    // MARK: - 标题
 
-    private var haraTitle: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("清弈")
-                        .font(.system(size: 42, weight: .bold, design: .serif))
-                        .foregroundColor(theme.title)
-                        .tracking(6)
-                    Text("围棋与象棋 · 一局清欢")
-                        .font(.system(size: 13, weight: .regular, design: .serif))
-                        .foregroundColor(theme.sub)
-                        .tracking(1)
-                }
-                SealView(text: "围\n象", size: 38, theme: theme)
-                Spacer(minLength: 0)
+    private var titleRow: some View {
+        HStack(spacing: 10) {
+            Text("清弈")
+                .font(.system(size: 37, weight: .bold, design: .serif))
+                .tracking(theme.isHara ? 1.8 : 6.6)
+                .foregroundColor(theme.title)
+            if theme.isHara {
+                TitleSeal(theme: theme)
             }
-            BoardMotif(theme: theme)
-                .frame(maxWidth: 210, alignment: .leading)
         }
-        .padding(.top, 26)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private var monumentTitle: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("清弈")
-                        .font(.system(size: 40, weight: .bold, design: .serif))
-                        .foregroundColor(theme.title)
-                        .tracking(5)
-                    Text("围棋与象棋 · 静心一手")
-                        .font(.system(size: 13, weight: .regular, design: .serif))
-                        .foregroundColor(theme.sub)
-                        .tracking(1)
-                }
-                SealView(text: "清\n弈", size: 32, theme: theme)
-                Spacer(minLength: 0)
-            }
-            BoardMotif(theme: theme)
-                .frame(maxWidth: 240)
-        }
-        .padding(.top, 26)
-    }
-
-    // MARK: - 切换
+    // MARK: - 围棋 / 象棋 切换
 
     private var segmented: some View {
         HStack(spacing: 0) {
-            segmentButton(kind: .go, title: "围棋", en: "GO")
-            segmentButton(kind: .xiangqi, title: "象棋", en: "XIANGQI")
+            segmentButton(kind: .go, title: "围棋")
+            segmentButton(kind: .xiangqi, title: "象棋")
         }
+        .padding(3)
+        .frame(height: 40)
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 22)
+                .stroke(theme.isHara ? theme.divider : theme.dlgLine, lineWidth: 1)
+        )
     }
 
-    @ViewBuilder
-    private func segmentButton(kind: GameKind, title: String, en: String) -> some View {
+    private func segmentButton(kind: GameKind, title: String) -> some View {
         let selected = app.kind == kind
-        Button {
+        return Button {
             app.kind = kind
         } label: {
-            if theme.isHara {
-                VStack(spacing: 7) {
-                    Text(title)
-                        .font(.system(size: 16, weight: selected ? .bold : .regular, design: .serif))
-                        .foregroundColor(selected ? theme.title : theme.sub)
-                        .tracking(2)
-                    Rectangle()
-                        .fill(selected ? theme.accent : Color.clear)
-                        .frame(height: 2)
-                        .frame(maxWidth: 34)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .contentShape(Rectangle())
-            } else {
-                VStack(spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 15, weight: .semibold, design: .serif))
-                        .foregroundColor(selected ? theme.title : theme.sub)
-                    Text(en)
-                        .font(.system(size: 8, weight: .regular))
-                        .tracking(1.5)
-                        .foregroundColor(selected ? theme.sub : theme.foot)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
+            Text(title)
+                .font(.system(size: 15, weight: .bold, design: .serif))
+                .tracking(1.2)
+                .foregroundColor(selected ? theme.primaryText : theme.sub)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
-                    Capsule()
-                        .fill(selected ? Color.white.opacity(0.75) : Color.clear)
+                    RoundedRectangle(cornerRadius: theme.isHara ? 2 : 19)
+                        .fill(selected ? theme.primaryBg : Color.clear)
                 )
-                .contentShape(Capsule())
-            }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: theme.isHara ? nil : .infinity)
     }
 
     // MARK: - 入口
 
+    @ViewBuilder
     private var entries: some View {
-        VStack(spacing: theme.isHara ? 0 : 12) {
-            entry(index: 0,
-                  title: app.kind == .go ? "人机对弈" : "与清弈对弈",
-                  desc: app.kind == .go ? "内置引擎 · 等级 1-10" : "红黑任选 · 内置引擎") {
-                if app.kind == .go { showGoConfig = true } else { showXqConfig = true }
-            }
-            if theme.isHara {
+        if theme.isHara {
+            VStack(spacing: 0) {
+                entryRow(0, entryTitle(0), entryDesc(0)) { openEntry(0) }
                 Hairline(color: theme.divider)
-            }
-            entry(index: 1, title: "本地双人", desc: "同一设备轮流落子") {
-                if app.kind == .go {
-                    pendingGo = GoSetup(mode: .local)
-                } else {
-                    pendingXQ = XiangqiSetup(mode: .local)
-                }
-            }
-            if theme.isHara {
+                entryRow(1, entryTitle(1), entryDesc(1)) { openEntry(1) }
                 Hairline(color: theme.divider)
+                entryRow(2, entryTitle(2), entryDesc(2)) { openEntry(2) }
             }
-            entry(index: 2,
-                  title: app.kind == .go ? "棋谱欣赏" : "棋谱复盘",
-                  desc: app.kind == .go ? "SGF 棋谱 · 逐手打谱" : "PGN 导入 · 逐手复盘") {
-                showLibrary = true
-            }
-            if theme.isHara {
-                Hairline(color: theme.divider)
+        } else {
+            VStack(spacing: 17) {
+                entryCard(0, entryTitle(0), entryDesc(0), leading: 0, trailing: 24) { openEntry(0) }
+                entryCard(1, entryTitle(1), entryDesc(1), leading: 14, trailing: 14) { openEntry(1) }
+                entryCard(2, entryTitle(2), entryDesc(2), leading: 24, trailing: 0) { openEntry(2) }
             }
         }
     }
 
-    private func entry(index: Int, title: String, desc: String, action: @escaping () -> Void) -> some View {
+    private func entryTitle(_ index: Int) -> String {
+        if index == 0 { return app.kind == .go ? "人机对弈" : "人机对弈" }
+        if index == 1 { return "本地双人" }
+        return app.kind == .go ? "棋谱欣赏" : "棋谱复盘"
+    }
+
+    private func entryDesc(_ index: Int) -> String {
+        if index == 0 {
+            return app.kind == .go
+                ? "内置引擎 · 等级 1-10 · 让子可调"
+                : "内置引擎 · 等级 1-10 · 红黑任选"
+        }
+        if index == 1 {
+            return app.kind == .go ? "两人同机对弈" : "红黑双方同机对弈"
+        }
+        return app.kind == .go ? "内置棋谱 · 支持导入 SGF" : "导入 PGN / FEN 逐步打谱"
+    }
+
+    private func openEntry(_ index: Int) {
+        if index == 0 {
+            if app.kind == .go { showGoConfig = true } else { showXqConfig = true }
+        } else if index == 1 {
+            if app.kind == .go { pendingGo = GoSetup(mode: .local) }
+            else { pendingXQ = XiangqiSetup(mode: .local) }
+        } else {
+            showLibrary = true
+        }
+    }
+
+    // 墨白：发丝列表行
+    private func entryRow(_ index: Int, _ title: String, _ desc: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            if theme.isHara {
-                HStack(spacing: 16) {
-                    Text("\(theme.prefixes[index]).")
+            HStack(spacing: 0) {
+                Text(theme.prefixes[index])
+                    .font(.system(size: 15, weight: .regular, design: .serif))
+                    .foregroundColor(theme.prefixColor)
+                    .frame(width: 48, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .foregroundColor(theme.entryTitle)
+                    Text(desc)
                         .font(.system(size: 13, weight: .regular, design: .serif))
-                        .foregroundColor(theme.prefixColor)
-                        .frame(width: 22, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(title)
-                            .font(.system(size: 19, weight: .bold, design: .serif))
-                            .foregroundColor(theme.entryTitle)
-                            .tracking(1)
-                        Text(desc)
-                            .font(.system(size: 12, weight: .regular, design: .serif))
-                            .foregroundColor(theme.entryDesc)
-                    }
-                    Spacer(minLength: 0)
-                    Text("›")
-                        .font(.system(size: 20, weight: .regular, design: .serif))
-                        .foregroundColor(theme.foot)
+                        .foregroundColor(theme.entryDesc)
+                        .lineLimit(1)
                 }
-                .padding(.vertical, 19)
-                .contentShape(Rectangle())
-            } else {
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(.system(size: 19, weight: .bold, design: .serif))
-                            .foregroundColor(theme.entryTitle)
-                        Text(desc)
-                            .font(.system(size: 12, weight: .regular, design: .serif))
-                            .foregroundColor(theme.entryDesc)
-                    }
-                    Spacer(minLength: 0)
-                    Text(theme.prefixes[index])
-                        .font(.system(size: 13, weight: .regular, design: .serif))
-                        .foregroundColor(theme.prefixColor)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 18)
-                .background(
-                    RoundedRectangle(cornerRadius: theme.entryRadius)
-                        .fill(LinearGradient(colors: [theme.entryBg[index],
-                                                      theme.entryBg[index].opacity(0.55)],
-                                             startPoint: .topLeading,
-                                             endPoint: .bottomTrailing))
-                )
-                .contentShape(Rectangle())
+
+                Spacer(minLength: 8)
+
+                Text("›")
+                    .font(.system(size: 22, weight: .regular, design: .serif))
+                    .foregroundColor(theme.sub)
             }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 28)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - 底部
+    // 粉彩：错落圆角卡片
+    private func entryCard(_ index: Int, _ title: String, _ desc: String,
+                           leading: CGFloat, trailing: CGFloat,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 0) {
+                Text(theme.prefixes[index])
+                    .font(.system(size: 15, weight: .regular, design: .serif))
+                    .foregroundColor(theme.prefixColor)
+                    .frame(width: 48, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .bold, design: .serif))
+                        .foregroundColor(theme.entryTitle)
+                    Text(desc)
+                        .font(.system(size: 13, weight: .regular, design: .serif))
+                        .foregroundColor(theme.entryDesc)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 0) {
+                    Text("●").foregroundColor(theme.entryTitle)
+                    Text("○").foregroundColor(theme.prefixColor)
+                }
+                .font(.system(size: 13, weight: .regular, design: .serif))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 28)
+            .background(
+                RoundedRectangle(cornerRadius: theme.entryRadius)
+                    .fill(theme.entryBg[index])
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, leading)
+        .padding(.trailing, trailing)
+    }
+
+    // MARK: - 页脚
 
     private var footer: some View {
-        VStack(spacing: 6) {
-            Text(theme.isHara ? "内置引擎 · 无需联网" : "落子无悔 · 静心一手")
-                .font(.system(size: 11, weight: .regular, design: .serif))
-                .tracking(1.5)
-                .foregroundColor(theme.foot)
-            Text("清弈 v1.0.0 · iOS")
-                .font(.system(size: 9, weight: .regular))
-                .foregroundColor(theme.foot.opacity(0.8))
+        VStack(spacing: 12) {
+            if theme.isHara {
+                Hairline(color: theme.divider)
+            }
+            HStack(spacing: 8) {
+                Text("v1.0.0")
+                    .font(.system(size: 12, weight: .regular, design: .serif))
+                    .foregroundColor(theme.foot)
+                Spacer(minLength: 8)
+                Text("Powered by QingYi Engine")
+                    .font(.system(size: 12, weight: .regular, design: .serif))
+                    .foregroundColor(theme.foot)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - 打开棋谱
@@ -340,36 +337,6 @@ struct MainView: View {
         } else {
             pendingXQ = XiangqiSetup(mode: .review, recordURL: url)
         }
-    }
-}
-
-// MARK: - 棋盘纹样
-
-struct BoardMotif: View {
-    var theme: Theme
-
-    var body: some View {
-        Canvas { context, size in
-            let n: CGFloat = 5
-            let pad: CGFloat = 5
-            let stepX = (size.width - pad * 2) / (n - 1)
-            let stepY = (size.height - pad * 2) / (n - 1)
-            var path = Path()
-            for i in 0..<5 {
-                let x = pad + CGFloat(i) * stepX
-                path.move(to: CGPoint(x: x, y: pad))
-                path.addLine(to: CGPoint(x: x, y: size.height - pad))
-                let y = pad + CGFloat(i) * stepY
-                path.move(to: CGPoint(x: pad, y: y))
-                path.addLine(to: CGPoint(x: size.width - pad, y: y))
-            }
-            context.stroke(path, with: .color(theme.isHara ? theme.divider : theme.dlgLine.opacity(0.9)), lineWidth: 0.7)
-            let cx = pad + 2 * stepX
-            let cy = pad + 2 * stepY
-            let stone = CGRect(x: cx - 3.6, y: cy - 3.6, width: 7.2, height: 7.2)
-            context.fill(Path(ellipseIn: stone), with: .color(theme.accent))
-        }
-        .frame(height: 36)
     }
 }
 
@@ -438,24 +405,27 @@ struct GoConfigDialog: View {
     }
 
     private var engineRow: some View {
-        HStack(spacing: 10) {
-            Text("引擎")
-                .font(.system(size: 13, design: .serif))
-                .foregroundColor(theme.sub)
-                .frame(width: 44, alignment: .leading)
-            Text("清弈引擎")
-                .font(.system(size: 15, weight: .semibold, design: .serif))
-                .foregroundColor(theme.title)
-            Text("内置")
-                .font(.system(size: 10))
-                .foregroundColor(theme.accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
-            Spacer(minLength: 0)
-            Text("无需下载")
-                .font(.system(size: 10))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("引擎")
+                    .font(.system(size: 13, design: .serif))
+                    .foregroundColor(theme.sub)
+                    .frame(width: 44, alignment: .leading)
+                Text("清弈内置引擎")
+                    .font(.system(size: 15, weight: .semibold, design: .serif))
+                    .foregroundColor(theme.title)
+                Text("内置")
+                    .font(.system(size: 10))
+                    .foregroundColor(theme.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
+                Spacer(minLength: 0)
+            }
+            Text("iOS 为纯内置引擎，棋力随等级 1-10 变化")
+                .font(.system(size: 11, design: .serif))
                 .foregroundColor(theme.foot)
+                .padding(.leading, 54)
         }
     }
 
@@ -525,22 +495,7 @@ struct XiangqiConfigDialog: View {
     var body: some View {
         DialogScaffold(title: "人机对弈 · 象棋", theme: theme, onDismiss: onCancel) {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 10) {
-                    Text("引擎")
-                        .font(.system(size: 13, design: .serif))
-                        .foregroundColor(theme.sub)
-                        .frame(width: 44, alignment: .leading)
-                    Text("清弈象棋引擎")
-                        .font(.system(size: 15, weight: .semibold, design: .serif))
-                        .foregroundColor(theme.title)
-                    Spacer(minLength: 0)
-                    Text("内置")
-                        .font(.system(size: 10))
-                        .foregroundColor(theme.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
-                }
+                engineRow
                 VStack(alignment: .leading, spacing: 9) {
                     Text("执子")
                         .font(.system(size: 13, design: .serif))
@@ -570,6 +525,31 @@ struct XiangqiConfigDialog: View {
                 }
                 .padding(.top, 2)
             }
+        }
+    }
+
+    private var engineRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("引擎")
+                    .font(.system(size: 13, design: .serif))
+                    .foregroundColor(theme.sub)
+                    .frame(width: 44, alignment: .leading)
+                Text("清弈内置引擎")
+                    .font(.system(size: 15, weight: .semibold, design: .serif))
+                    .foregroundColor(theme.title)
+                Spacer(minLength: 0)
+                Text("内置")
+                    .font(.system(size: 10))
+                    .foregroundColor(theme.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
+            }
+            Text("iOS 为纯内置引擎，棋力随等级 1-10 变化")
+                .font(.system(size: 11, design: .serif))
+                .foregroundColor(theme.foot)
+                .padding(.leading, 54)
         }
     }
 
@@ -623,6 +603,7 @@ struct LibraryView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
                 .padding(.bottom, 14)
+
                 Hairline(color: theme.dlgLine)
                     .padding(.horizontal, 24)
 
@@ -649,7 +630,7 @@ struct LibraryView: View {
                                                 .lineLimit(1)
                                         }
                                         Spacer(minLength: 0)
-                                        Text("\(record.size)路")
+                                        Text("\(record.size) 路")
                                             .font(.system(size: 10, design: .serif))
                                             .foregroundColor(theme.foot)
                                     }
@@ -734,7 +715,6 @@ struct LibraryView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, kind == .go ? 0 : 0)
         .padding(.top, kind == .go ? 8 : 0)
     }
 

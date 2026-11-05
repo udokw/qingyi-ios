@@ -23,6 +23,7 @@ final class XiangqiGameModel: ObservableObject {
     private var lastMoveText = ""
     private var transientToken = 0
     private var generation = 0
+    private var moveLog: [String] = []
     private var reviewMoves: [String] = []
 
     init(setup: XiangqiSetup) {
@@ -48,7 +49,7 @@ final class XiangqiGameModel: ObservableObject {
         switch mode {
         case .ai: return playerColor == .red ? "我执红" : "我执黑"
         case .local: return "本地双人"
-        case .review: return "棋谱复盘"
+        case .review: return "复 盘"
         }
     }
 
@@ -68,6 +69,56 @@ final class XiangqiGameModel: ObservableObject {
         let side = game.turn == .red ? "红方" : "黑方"
         if lastMoveText.isEmpty { return "轮到 \(side) 行棋" }
         return "轮到 \(side) 行棋 · 上着 \(lastMoveText)"
+    }
+
+    var turnMarker: String { game.turn == .red ? "● 红方" : "● 黑方" }
+
+    var plainStatus: String? {
+        if let transientStatus { return transientStatus }
+        if let resultText { return resultText }
+        if mode == .review { return "\(reviewIndex) / \(reviewTotal) 着" }
+        if thinking { return "对方思考中…" }
+        return nil
+    }
+
+    /// 粉彩：整行状态（左执子 + 轮到）
+    var monumentStatus: String {
+        if let plain = plainStatus { return plain }
+        let prefix: String
+        switch mode {
+        case .ai: prefix = playerColor == .red ? "我执红  " : "我执黑  "
+        case .local: prefix = "本地双人  "
+        case .review: prefix = ""
+        }
+        var s = prefix + "轮到 " + turnMarker + "行棋"
+        if game.inCheck(game.turn) { s += " · 将军！" }
+        return s
+    }
+
+    var eyebrowText: String {
+        let n = mode == .review ? reviewIndex : game.plies
+        if mode == .review {
+            if n == 0 { return "象 棋 · 复 盘 · 开 头" }
+            return "象 棋 · 复 盘 · 第 \(ChineseNumber.text(n)) 着"
+        }
+        return "象 棋 · 第 \(ChineseNumber.text(max(n, 1))) 着"
+    }
+
+    /// 最近 8 着中文记谱
+    var moveLine: String {
+        guard !moveLog.isEmpty else { return "楚河汉界 · 静待落子" }
+        let start = max(0, moveLog.count - 8)
+        var parts: [String] = []
+        for i in start..<moveLog.count {
+            parts.append(i % 2 == 0 ? "\(i / 2 + 1). \(moveLog[i])" : moveLog[i])
+        }
+        return parts.joined(separator: "  ")
+    }
+
+    var detailSubtitle: String {
+        if mode == .review { return "9 × 10 · 棋谱复盘" }
+        if mode == .ai { return "9 × 10 · 等级 \(level)" }
+        return "9 × 10 · 本地双人"
     }
 
     var lastMove: XiangqiGame.Move? { game.lastMove }
@@ -164,6 +215,7 @@ final class XiangqiGameModel: ObservableObject {
         guard game.play(from: from, to: to) else { return false }
         if let m = game.history.last {
             lastMoveText = game.notation(m)
+            moveLog.append(lastMoveText)
         }
         clearSelection()
         SoundPlayer.shared.playMove()
@@ -204,6 +256,7 @@ final class XiangqiGameModel: ObservableObject {
                 }
                 if let last = self.game.history.last {
                     self.lastMoveText = self.game.notation(last)
+                    self.moveLog.append(self.lastMoveText)
                 }
                 SoundPlayer.shared.playMove()
                 self.refresh()
@@ -223,17 +276,33 @@ final class XiangqiGameModel: ObservableObject {
 
     func undo() {
         guard !thinking, mode != .review, !isFinished else { return }
+        var undone = 0
         if mode == .ai {
-            if game.plies > 0 { _ = game.undo() }
-            if game.plies > 0, game.turn != playerColor { _ = game.undo() }
+            if game.plies > 0 { _ = game.undo(); undone += 1 }
+            if game.plies > 0, game.turn != playerColor { _ = game.undo(); undone += 1 }
         } else {
             _ = game.undo()
+            undone = 1
         }
+        if undone > 0 { moveLog.removeLast(min(undone, moveLog.count)) }
         resultText = nil
         clearSelection()
-        lastMoveText = game.history.last.map { game.notation($0) } ?? ""
+        lastMoveText = moveLog.last ?? ""
         refresh()
         flash("已悔棋")
+    }
+
+    func restart() {
+        guard mode == .ai else { return }
+        game = XiangqiGame()
+        moveLog.removeAll()
+        lastMoveText = ""
+        resultText = nil
+        generation += 1
+        thinking = false
+        clearSelection()
+        refresh()
+        if game.turn != playerColor { startAI() }
     }
 
     func resign() {
@@ -308,6 +377,7 @@ final class XiangqiGameModel: ObservableObject {
         }
         game = g
         reviewIndex = count
+        moveLog = notations
         reviewMoves = notations
         lastMoveText = notations.last ?? ""
         clearSelection()

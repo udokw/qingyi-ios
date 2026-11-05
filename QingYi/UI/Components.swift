@@ -42,6 +42,78 @@ struct MiniSeal: View {
     }
 }
 
+/// 主页标题旁的竖排朱红小印（清 / 弈）
+struct TitleSeal: View {
+    var text: String = "清\n弈"
+    var theme: Theme
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium, design: .serif))
+            .foregroundColor(.white)
+            .multilineTextAlignment(.center)
+            .lineSpacing(-2)
+            .padding(5)
+            .background(RoundedRectangle(cornerRadius: 3).fill(theme.accent))
+    }
+}
+
+/// 墨白主题：题字上方的发丝饰线（线 · 点 · 朱砂方印 · 点 · 线）
+struct OrnamentRow: View {
+    var theme: Theme
+    var body: some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(theme.divider)
+                .frame(width: 42, height: 1)
+            Spacer().frame(width: 10)
+            Circle()
+                .fill(theme.divider)
+                .frame(width: 3, height: 3)
+            Spacer().frame(width: 10)
+            Rectangle()
+                .fill(theme.accent)
+                .frame(width: 6, height: 6)
+            Spacer().frame(width: 10)
+            Circle()
+                .fill(theme.divider)
+                .frame(width: 3, height: 3)
+            Spacer().frame(width: 10)
+            Rectangle()
+                .fill(theme.divider)
+                .frame(width: 42, height: 1)
+        }
+        .frame(height: 18)
+    }
+}
+
+/// 粉彩主题：纸上建筑穹顶
+struct DomeMark: View {
+    var body: some View {
+        VStack(spacing: 3) {
+            DomeShape()
+                .fill(Color(hex: 0xB7CDB4))
+                .frame(width: 80, height: 40)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color(hex: 0xD8C9B8))
+                .frame(width: 104, height: 5)
+        }
+    }
+}
+
+struct DomeShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let shoulder = rect.width / 2
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: shoulder))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: shoulder),
+                          control: CGPoint(x: rect.midX, y: -shoulder * 0.5))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 // MARK: - 单选 / 开关
 
 struct RadioDot: View {

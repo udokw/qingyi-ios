@@ -16,21 +16,52 @@ struct GoGameView: View {
         ZStack {
             PaperBackground(theme: theme)
             VStack(spacing: 0) {
-                topBar
-                statusBlock
-                    .padding(.horizontal, 22)
-                    .padding(.top, theme.isHara ? 10 : 14)
-                board
-                    .padding(.horizontal, 12)
-                    .padding(.top, theme.isHara ? 8 : 14)
+                header
+
                 Spacer(minLength: 8)
+
+                GoBoardView(board: model.game.board,
+                            size: model.game.size,
+                            lastMove: model.lastMove,
+                            ko: model.game.ko,
+                            territory: model.territory,
+                            theme: theme) { x, y in
+                    model.tap(x, y)
+                }
+                .padding(.top, 10)
+
+                if !theme.isHara {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color(hex: 0xD8C9B8))
+                        .frame(width: 140, height: 10)
+                        .padding(.top, 8)
+                    Text("安 静 的 一 手")
+                        .font(.system(size: 11, weight: .regular, design: .serif))
+                        .tracking(3.3)
+                        .foregroundColor(theme.foot)
+                        .padding(.top, 16)
+                }
+
                 if isReview {
-                    reviewControls
+                    commentBlock
+                        .padding(.top, 12)
+                    reviewGrid
+                        .padding(.top, 12)
                 } else {
                     actionGrid
+                        .padding(.top, 40)
                 }
-                footer
+
+                if theme.isHara {
+                    signature
+                        .padding(.top, 24)
+                }
+
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, theme.isHara ? 6 : 6)
+            .padding(.top, 4)
+            .padding(.bottom, 14)
         }
         .statusBarHidden(false)
         .onAppear {
@@ -55,215 +86,216 @@ struct GoGameView: View {
 
     // MARK: - 顶部
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                dismiss()
-            } label: {
-                HStack(spacing: 4) {
-                    Text("‹")
-                        .font(.system(size: 20, weight: .regular, design: .serif))
-                    Text("返回")
-                        .font(.system(size: 13, design: .serif))
-                }
-                .foregroundColor(theme.sub)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Spacer(minLength: 0)
-
-            if theme.isHara {
-                HStack(spacing: 8) {
-                    Text("清 弈")
-                        .font(.system(size: 12, weight: .regular, design: .serif))
-                        .tracking(3)
-                        .foregroundColor(theme.sub)
-                    MiniSeal(text: "棋", theme: theme)
-                }
-            } else {
-                Text(model.leftTitle)
-                    .font(.system(size: 12, weight: .medium, design: .serif))
+    @ViewBuilder
+    private var header: some View {
+        if theme.isHara {
+            ZStack {
+                Text(model.eyebrowText)
+                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .tracking(3.9)
                     .foregroundColor(theme.sub)
-            }
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 8)
-    }
+                    .frame(maxWidth: .infinity, alignment: .center)
 
-    // MARK: - 状态
-
-    private var statusBlock: some View {
-        VStack(spacing: theme.isHara ? 8 : 6) {
-            if theme.isHara {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(model.leftTitle)
-                        .font(.system(size: 17, weight: .bold, design: .serif))
-                        .foregroundColor(theme.title)
+                HStack(spacing: 0) {
+                    backButton
                     Spacer(minLength: 0)
-                    Text(model.statusText)
-                        .font(.system(size: 16, weight: .regular, design: .serif))
-                        .foregroundColor(theme.title)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                    MiniSeal(text: "清", theme: theme)
                 }
-            } else {
-                Text(model.statusText)
+            }
+
+            HStack(spacing: 8) {
+                Text(model.leftTitle)
                     .font(.system(size: 18, weight: .bold, design: .serif))
                     .foregroundColor(theme.title)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                Spacer(minLength: 8)
+                haraStatusLine
             }
-            if !theme.isHara {
-                Text(model.subTitle)
-                    .font(.system(size: 11, weight: .regular, design: .serif))
-                    .foregroundColor(theme.sub)
+            .padding(.top, 10)
+
+            Hairline(color: theme.divider)
+                .padding(.top, 10)
+        } else {
+            HStack(spacing: 0) {
+                backButton
+                Spacer(minLength: 0)
             }
-            if let comment = model.comment, !comment.isEmpty {
-                Text(comment)
-                    .font(.system(size: 11, design: .serif))
-                    .foregroundColor(theme.sub)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Hairline(color: theme.isHara ? theme.divider : theme.dlgLine)
+            Text(model.monumentStatus)
+                .font(.system(size: 19, weight: .bold, design: .serif))
+                .foregroundColor(theme.title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 4)
+            Text(model.subTitle)
+                .font(.system(size: 14, weight: .regular, design: .serif))
+                .tracking(1.4)
+                .foregroundColor(theme.sub)
+                .padding(.top, 6)
+            Hairline(color: theme.dlgLine)
+                .padding(.top, 10)
         }
     }
 
-    // MARK: - 棋盘
-
-    private var board: some View {
-        GoBoardView(board: model.game.board,
-                    size: model.game.size,
-                    lastMove: model.lastMove,
-                    ko: model.game.ko,
-                    territory: model.territory,
-                    theme: theme) { x, y in
-            model.tap(x, y)
+    private var backButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Text("‹")
+                .font(.system(size: 22, weight: .regular, design: .serif))
+                .foregroundColor(theme.sub)
+                .frame(width: 32, height: 24, alignment: .leading)
+                .contentShape(Rectangle())
         }
-        .clipShape(RoundedRectangle(cornerRadius: theme.isHara ? 2 : 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 8)
-                .stroke(theme.isHara ? theme.divider : Color.clear, lineWidth: 0.6)
-        )
+        .buttonStyle(.plain)
     }
 
-    // MARK: - 按钮
+    private var haraStatusLine: some View {
+        Group {
+            if let plain = model.plainStatus {
+                Text(plain)
+                    .foregroundColor(theme.title)
+            } else {
+                Text("轮到 ").foregroundColor(theme.title)
+                    + Text(model.turnMarker).foregroundColor(theme.accent)
+                    + Text("行棋").foregroundColor(theme.title)
+            }
+        }
+        .font(.system(size: 17, weight: .regular, design: .serif))
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    // MARK: - 复盘批注
+
+    @ViewBuilder
+    private var commentBlock: some View {
+        if let comment = model.comment, !comment.isEmpty {
+            Text(comment)
+                .font(.system(size: 12, weight: .regular, design: .serif))
+                .foregroundColor(theme.sub)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 2)
+        }
+    }
+
+    // MARK: - 操作网格
 
     private var actionGrid: some View {
-        VStack(spacing: 0) {
+        Group {
             if theme.isHara {
-                Hairline(color: theme.divider)
-                HStack(spacing: 0) {
-                    gridButton("悔棋", "UNDO", .normal) { model.undo() }
-                    verticalDivider
-                    gridButton("停一手", "PASS", .normal) { model.pass() }
-                    verticalDivider
-                    gridButton("形势", "SCORE EST.", .normal) { model.estimate() }
+                VStack(spacing: 0) {
+                    Hairline(color: theme.divider)
+                    HStack(spacing: 0) {
+                        gridButton("悔棋", "UNDO") { model.undo() }
+                        verticalDivider
+                        gridButton("停一手", "PASS") { model.pass() }
+                        verticalDivider
+                        gridButton("形势", "SCORE EST.") { model.estimate() }
+                    }
+                    .frame(height: 56)
+                    Hairline(color: theme.divider)
+                    HStack(spacing: 0) {
+                        gridButton("数子", "COUNT") { model.countScore() }
+                        verticalDivider
+                        gridButton("认输", "RESIGN", danger: true) { model.resign() }
+                        verticalDivider
+                        gridButton("存谱", "SAVE SGF") { model.save() }
+                    }
+                    .frame(height: 56)
+                    Hairline(color: theme.divider)
                 }
-                Hairline(color: theme.divider)
-                HStack(spacing: 0) {
-                    gridButton("数子", "COUNT", .normal) { model.countScore() }
-                    verticalDivider
-                    gridButton("认输", "RESIGN", .danger) { model.resign() }
-                    verticalDivider
-                    gridButton("存谱", "SAVE SGF", .normal) { model.save() }
-                }
-                Hairline(color: theme.divider)
             } else {
-                VStack(spacing: 8) {
-                    HStack(spacing: 8) {
-                        pill("悔棋", .normal) { model.undo() }
-                        pill("停一手", .normal) { model.pass() }
-                        pill("形势", .normal) { model.estimate() }
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        pill("悔棋") { model.undo() }
+                        pill("停一手") { model.pass() }
+                        pill("形势") { model.estimate() }
                     }
-                    HStack(spacing: 8) {
-                        pill("数子", .normal) { model.countScore() }
-                        pill("认输", .danger) { model.resign() }
-                        pill("存谱", .normal) { model.save() }
+                    HStack(spacing: 12) {
+                        pill("数子") { model.countScore() }
+                        pill("认输", danger: true) { model.resign() }
+                        pill("存谱") { model.save() }
                     }
                 }
-                .padding(.top, 30)
-                .padding(.bottom, 6)
+                .padding(.horizontal, 6)
             }
         }
-        .padding(.horizontal, theme.isHara ? 0 : 18)
     }
 
-    private var reviewControls: some View {
-        HStack(spacing: 10) {
-            ThemedActionButton(title: "◀ 上一手", subtitle: "PREV", theme: theme) {
-                model.reviewStep(-1)
-            }
-            ThemedActionButton(title: "下一手 ▶", subtitle: "NEXT", kind: .primary, theme: theme) {
-                model.reviewStep(1)
+    private var reviewGrid: some View {
+        Group {
+            if theme.isHara {
+                VStack(spacing: 0) {
+                    Hairline(color: theme.divider)
+                    HStack(spacing: 0) {
+                        gridButton("◀ 上一手", "PREV") { model.reviewStep(-1) }
+                        verticalDivider
+                        gridButton("下一手 ▶", "NEXT", selected: true) { model.reviewStep(1) }
+                    }
+                    .frame(height: 56)
+                    Hairline(color: theme.divider)
+                }
+            } else {
+                HStack(spacing: 12) {
+                    pill("◀ 上一手") { model.reviewStep(-1) }
+                    pill("下一手 ▶", primary: true) { model.reviewStep(1) }
+                }
+                .padding(.horizontal, 6)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 4)
     }
 
     private var verticalDivider: some View {
         Rectangle()
             .fill(theme.divider)
             .frame(width: 0.6)
-            .padding(.vertical, 6)
     }
 
-    private func gridButton(_ title: String, _ en: String, _ kind: ActionKind, action: @escaping () -> Void) -> some View {
+    private func gridButton(_ title: String, _ en: String,
+                            danger: Bool = false, selected: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Text(title)
                     .font(.system(size: 15, weight: .regular, design: .serif))
-                    .foregroundColor(kind == .danger ? theme.dangerText : theme.title)
+                    .foregroundColor(danger ? theme.dangerText : (selected ? theme.primaryText : theme.title))
                 Text(en)
                     .font(.system(size: 9, weight: .regular, design: .serif))
                     .tracking(1)
-                    .foregroundColor(theme.foot)
+                    .foregroundColor(selected ? theme.primaryText.opacity(0.7) : theme.sub)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(selected ? theme.primaryBg : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    private func pill(_ title: String, _ kind: ActionKind, action: @escaping () -> Void) -> some View {
+    private func pill(_ title: String, danger: Bool = false, primary: Bool = false,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .medium, design: .serif))
-                .foregroundColor(kind == .danger ? theme.dangerText : theme.btnText)
+                .foregroundColor(primary ? theme.primaryText : (danger ? theme.dangerText : theme.btnText))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(kind == .danger ? theme.entryBg[0] : theme.btnBg)
+                    RoundedRectangle(cornerRadius: theme.btnRadius)
+                        .fill(primary ? theme.primaryBg : (danger ? theme.entryBg[0] : theme.btnBg))
                 )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - 底部
+    // MARK: - 底部签字
 
-    private var footer: some View {
-        VStack(spacing: 4) {
-            if theme.isHara {
-                Hairline(color: theme.divider)
-                    .padding(.horizontal, 22)
-                Text(isReview ? "棋 谱 打 谱 · 清 弈" : "清 弈 · 内 置 引 擎")
-                    .font(.system(size: 9, weight: .regular, design: .serif))
-                    .tracking(2)
-                    .foregroundColor(theme.foot)
-                    .padding(.top, 8)
-            } else {
-                Text(isReview ? "逐手回放 · 清弈" : "静心一手 · 清弈")
-                    .font(.system(size: 10, weight: .regular, design: .serif))
-                    .foregroundColor(theme.foot)
-            }
-        }
-        .padding(.bottom, 8)
+    private var signature: some View {
+        Text(isReview ? "清 弈 · 棋 谱 打 谱" : "清 弈 引 擎 · 围 棋")
+            .font(.system(size: 11, weight: .regular, design: .serif))
+            .tracking(2.75)
+            .foregroundColor(theme.foot)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 }

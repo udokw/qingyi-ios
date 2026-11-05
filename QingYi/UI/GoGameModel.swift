@@ -66,9 +66,9 @@ final class GoGameModel: ObservableObject {
 
     var leftTitle: String {
         switch mode {
-        case .ai: return playerColor == .black ? "我执黑" : "我执白"
+        case .ai: return playerColor == .black ? "● 我执黑" : "○ 我执白"
         case .local: return "本地双人"
-        case .review: return "棋谱打谱"
+        case .review: return "打 谱"
         }
     }
 
@@ -89,6 +89,39 @@ final class GoGameModel: ObservableObject {
         if mode == .review { return "\(reviewIndex) / \(reviewTotal) 手" }
         if thinking { return "对方思考中…" }
         return game.turn == .black ? "轮到 黑方 行棋" : "轮到 白方 行棋"
+    }
+
+    /// 非「轮到 XX 行棋」时的纯文本状态
+    var plainStatus: String? {
+        if let transientStatus { return transientStatus }
+        if let resultText { return resultText }
+        if mode == .review { return "手数 \(reviewIndex) / \(reviewTotal)" }
+        if thinking { return "对方思考中…" }
+        return nil
+    }
+
+    var turnMarker: String { game.turn == .black ? "● 黑方" : "○ 白方" }
+
+    /// 粉彩：整行状态（左执子 + 轮到）
+    var monumentStatus: String {
+        if let plainStatus { return plainStatus }
+        let prefix: String
+        switch mode {
+        case .ai: prefix = playerColor == .black ? "我执黑  " : "我执白  "
+        case .local: prefix = "本地双人  "
+        case .review: prefix = ""
+        }
+        return prefix + "轮到 " + turnMarker + "行棋"
+    }
+
+    /// 墨白：眉题「对局 · 第 X 手」
+    var eyebrowText: String {
+        let n = mode == .review ? reviewIndex : game.history.count
+        if mode == .review {
+            if n == 0 { return "棋 谱 · 开 头" }
+            return "棋 谱 · 第 \(ChineseNumber.text(n)) 手"
+        }
+        return "对 局 · 第 \(ChineseNumber.text(max(n, 1))) 手"
     }
 
     var lastMove: GoPoint? { game.history.last?.point }

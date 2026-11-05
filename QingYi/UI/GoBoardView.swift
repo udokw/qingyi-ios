@@ -14,7 +14,7 @@ struct GoBoardView: View {
         Canvas { context, canvasSize in
             let width = min(canvasSize.width, canvasSize.height)
             guard size > 1 else { return }
-            let margin = width * 0.05
+            let margin = width * 0.042
             let cell = (width - margin * 2) / CGFloat(size - 1)
 
             // 形势: 地域小块
@@ -23,13 +23,12 @@ struct GoBoardView: View {
                     for x in 0..<min(size, territory[y].count) {
                         let owner = territory[y][x]
                         guard owner != 0 else { continue }
-                        let color = owner == 1 ? Color(hex: 0x1A1A1A) : Color(hex: 0xF7F4ED)
-                        let rect = CGRect(x: margin + CGFloat(x) * cell - cell * 0.42,
-                                          y: margin + CGFloat(y) * cell - cell * 0.42,
-                                          width: cell * 0.84,
-                                          height: cell * 0.84)
-                        let path = Path(roundedRect: rect, cornerRadius: 1.5)
-                        context.fill(path, with: .color(color.opacity(0.65)))
+                        let color = owner == 1 ? Color.black.opacity(0.35) : Color.white.opacity(0.55)
+                        let block = cell * 0.28
+                        let rect = CGRect(x: margin + CGFloat(x) * cell - block / 2,
+                                          y: margin + CGFloat(y) * cell - block / 2,
+                                          width: block, height: block)
+                        context.fill(Path(rect), with: .color(color))
                     }
                 }
             }
@@ -49,7 +48,7 @@ struct GoBoardView: View {
             let starPoints = starCoordinates(size: size)
             for p in starPoints {
                 let c = CGPoint(x: margin + CGFloat(p.x) * cell, y: margin + CGFloat(p.y) * cell)
-                let r: CGFloat = size >= 13 ? cell * 0.1 : cell * 0.13
+                let r: CGFloat = cell * 0.09
                 let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
                 context.fill(Path(ellipseIn: rect), with: .color(theme.boardLine))
             }
@@ -61,7 +60,7 @@ struct GoBoardView: View {
                     guard stone != .empty else { continue }
                     drawStone(context: &context, center: CGPoint(x: margin + CGFloat(x) * cell,
                                                                  y: margin + CGFloat(y) * cell),
-                              radius: cell * 0.46, black: stone == .black)
+                              radius: cell * 0.47, black: stone == .black)
                 }
             }
 
@@ -77,11 +76,17 @@ struct GoBoardView: View {
             if let last = lastMove {
                 let c = CGPoint(x: margin + CGFloat(last.x) * cell, y: margin + CGFloat(last.y) * cell)
                 let stone = last.y < board.count && last.x < board[last.y].count ? board[last.y][last.x] : .empty
-                let color: Color = stone == .black ? .white : theme.marker
-                let r = cell * 0.2
-                let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
-                context.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.95)))
+                if stone != .empty {
+                    let color: Color = stone == .black ? .white : theme.marker
+                    let r = cell * 0.47 * 0.5
+                    let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
+                    context.stroke(Path(ellipseIn: rect), with: .color(color.opacity(0.95)), lineWidth: 3)
+                }
             }
+
+            // 棋盘外框
+            context.stroke(Path(CGRect(origin: .zero, size: canvasSize).insetBy(dx: 0.5, dy: 0.5)),
+                           with: .color(theme.boardLine.opacity(0.7)), lineWidth: 1)
         }
         .background(theme.boardBg)
         .aspectRatio(1, contentMode: .fit)
@@ -138,7 +143,7 @@ struct GoBoardView: View {
         switch size {
         case 19: coords = [3, 9, 15]
         case 13: coords = [3, 6, 9]
-        case 9: coords = [2, 4, 6]
+        case 9: coords = [3, 5]
         default: coords = []
         }
         var points: [GoPoint] = []

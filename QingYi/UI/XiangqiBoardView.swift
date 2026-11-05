@@ -26,8 +26,7 @@ struct XiangqiBoardView: View {
             }
 
             if let last = lastMove {
-                strokeCorners(&context, point: last.from, metrics: metrics, color: theme.marker.opacity(0.7))
-                strokeCorners(&context, point: last.to, metrics: metrics, color: theme.marker)
+                ring(&context, point: last.to, metrics: metrics, color: theme.marker, radius: 0.48)
             }
 
             if let selection {
@@ -39,7 +38,7 @@ struct XiangqiBoardView: View {
 
             for hint in hints {
                 let c = center(of: hint, metrics)
-                let r = metrics.cell * 0.13
+                let r = metrics.cell * 0.14
                 context.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
                              with: .color(theme.accent.opacity(0.85)))
             }
@@ -80,10 +79,9 @@ struct XiangqiBoardView: View {
     }
 
     private func layout(in size: CGSize) -> Metrics {
-        let margin = min(size.width, size.height) * 0.055
-        let cell = min((size.width - margin * 2) / CGFloat(cols - 1),
-                       (size.height - margin * 2) / CGFloat(rows - 1))
-        let origin = CGPoint(x: (size.width - cell * CGFloat(cols - 1)) / 2,
+        let margin = size.width * 0.05
+        let cell = (size.width - margin * 2) / CGFloat(cols - 1)
+        let origin = CGPoint(x: margin,
                              y: (size.height - cell * CGFloat(rows - 1)) / 2)
         return Metrics(cell: cell, origin: origin)
     }
@@ -147,7 +145,7 @@ struct XiangqiBoardView: View {
 
         // 楚河汉界
         let riverY = top + CGFloat(4.5) * m.cell
-        let riverFont = Font.system(size: m.cell * 0.42, weight: .regular, design: .serif)
+        let riverFont = Font.system(size: m.cell * 0.62, weight: .regular, design: .serif)
         context.draw(Text("楚 河")
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
@@ -156,6 +154,11 @@ struct XiangqiBoardView: View {
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
                      at: CGPoint(x: left + width * 0.72, y: riverY), anchor: .center)
+
+        // 棋盘外框
+        context.stroke(Path(CGRect(origin: .zero, size: CGSize(width: left * 2 + width,
+                                                              height: top * 2 + height)).insetBy(dx: 0.5, dy: 0.5)),
+                       with: .color(theme.boardLine.opacity(0.7)), lineWidth: 1)
     }
 
     private func drawPositionMark(_ context: inout GraphicsContext, at c: CGPoint, cell: CGFloat) {
@@ -195,25 +198,17 @@ struct XiangqiBoardView: View {
                        with: .color(side.opacity(0.28)), lineWidth: 0.7)
 
         context.draw(Text(XiangqiGame.pieceName(piece))
-                        .font(.system(size: m.cell * 0.5, weight: .semibold, design: .serif))
+                        .font(.system(size: m.cell * 0.62, weight: .bold, design: .serif))
                         .foregroundColor(side),
                      at: c, anchor: .center)
     }
 
-    private func strokeCorners(_ context: inout GraphicsContext, point: GoPoint, metrics m: Metrics, color: Color) {
+    private func ring(_ context: inout GraphicsContext, point: GoPoint, metrics m: Metrics,
+                      color: Color, radius: CGFloat) {
         let c = center(of: point, m)
-        let r = m.cell * 0.47
-        let arm = m.cell * 0.16
-        var path = Path()
-        for dx in [-1.0, 1.0] {
-            for dy in [-1.0, 1.0] {
-                let corner = CGPoint(x: c.x + CGFloat(dx) * r, y: c.y + CGFloat(dy) * r)
-                path.move(to: CGPoint(x: corner.x - CGFloat(dx) * arm, y: corner.y))
-                path.addLine(to: corner)
-                path.addLine(to: CGPoint(x: corner.x, y: corner.y - CGFloat(dy) * arm))
-            }
-        }
-        context.stroke(path, with: .color(color), lineWidth: 1.4)
+        let r = m.cell * radius
+        context.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                       with: .color(color), lineWidth: 1.6)
     }
 
     // MARK: - 坐标
@@ -226,7 +221,7 @@ struct XiangqiBoardView: View {
         let c = center(of: GoPoint(x: x, y: y), m)
         let dx = location.x - c.x
         let dy = location.y - c.y
-        guard dx * dx + dy * dy <= (m.cell * 0.62) * (m.cell * 0.62) else { return nil }
+        guard dx * dx + dy * dy <= (m.cell * 0.65) * (m.cell * 0.65) else { return nil }
         return GoPoint(x: x, y: y)
     }
 }

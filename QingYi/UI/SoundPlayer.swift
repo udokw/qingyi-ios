@@ -9,7 +9,7 @@ final class SoundPlayer {
     private var enabled = true
 
     private init() {
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
     }
 
@@ -29,12 +29,13 @@ final class SoundPlayer {
 
     func playStone() {
         guard enabled else { return }
-        AudioServicesPlaySystemSound(1104)
+        play("xq_move")
     }
 
     private func play(_ name: String) {
         if let player = cache[name] {
             player.currentTime = 0
+            player.volume = 1.0
             player.play()
             return
         }
@@ -44,6 +45,7 @@ final class SoundPlayer {
         }
         if let player = try? AVAudioPlayer(contentsOf: url) {
             player.prepareToPlay()
+            player.volume = 1.0
             cache[name] = player
             player.play()
         }
