@@ -41,6 +41,13 @@ final class XiangqiGameModel: ObservableObject {
                 self?.startAI()
             }
         }
+
+        // 高档位用 Pikafish: 提前在后台加载网络, 避免第一次落子时明显卡顿
+        if setup.mode == .ai, setup.level >= PikafishEngine.minimumLevel {
+            DispatchQueue.global(qos: .utility).async {
+                PikafishEngine.shared.preload()
+            }
+        }
     }
 
     // MARK: - 状态
@@ -245,7 +252,15 @@ final class XiangqiGameModel: ObservableObject {
         let gen = generation
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let move = XiangqiAI.bestMove(in: snapshot, level: level)
+            var move: XiangqiGame.Move?
+            if level >= PikafishEngine.minimumLevel,
+               let engineMove = PikafishEngine.shared.bestMove(fen: snapshot.fen, level: level) {
+                move = XiangqiGame.Move(from: engineMove.from, to: engineMove.to)
+            }
+            // 引擎不可用 (资源缺失/超时) 时回退到本地 AI
+            if move == nil {
+                move = XiangqiAI.bestMove(in: snapshot, level: level)
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.generation == gen else { return }
                 self.thinking = false
