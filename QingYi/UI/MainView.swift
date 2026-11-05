@@ -34,7 +34,7 @@ struct MainView: View {
                         titleRow
                             .padding(.top, 12)
 
-                        Text("多引擎 · 围棋与象棋")
+                        Text("内置引擎 · 围棋与象棋")
                             .font(.system(size: 14))
                             .tracking(1.7)
                             .foregroundColor(theme.sub)
@@ -411,7 +411,7 @@ struct GoConfigDialog: View {
                     .font(.system(size: 13))
                     .foregroundColor(theme.sub)
                     .frame(width: 44, alignment: .leading)
-                Text("清弈内置引擎")
+                Text("清弈 · 棋形引擎")
                     .font(.system(size: 15, weight: .semibold, design: .serif))
                     .foregroundColor(theme.title)
                 Text("内置")
@@ -422,9 +422,10 @@ struct GoConfigDialog: View {
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
                 Spacer(minLength: 0)
             }
-            Text("iOS 为纯内置引擎，棋力随等级 1-10 变化")
+            Text("纯 Swift 启发式引擎（气/提子/棋形）· 等级 1-10 由入门到业余中段\n安卓的 KataGo / Pachi / GNU Go 为原生 .so，无法在 iOS 上运行")
                 .font(.system(size: 11))
                 .foregroundColor(theme.foot)
+                .lineSpacing(3)
                 .padding(.leading, 54)
         }
     }
@@ -535,7 +536,7 @@ struct XiangqiConfigDialog: View {
                     .font(.system(size: 13))
                     .foregroundColor(theme.sub)
                     .frame(width: 44, alignment: .leading)
-                Text("清弈内置引擎")
+                Text("清弈 · Alpha-Beta 引擎")
                     .font(.system(size: 15, weight: .semibold, design: .serif))
                     .foregroundColor(theme.title)
                 Spacer(minLength: 0)
@@ -546,9 +547,10 @@ struct XiangqiConfigDialog: View {
                     .padding(.vertical, 2)
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
             }
-            Text("iOS 为纯内置引擎，棋力随等级 1-10 变化")
+            Text("纯 Swift 迭代加深搜索 + 吃子排序 · 等级 1-10 由入门到业余中段\n安卓的 Fairy-Stockfish / Pikafish 为原生 .so，无法在 iOS 上运行")
                 .font(.system(size: 11))
                 .foregroundColor(theme.foot)
+                .lineSpacing(3)
                 .padding(.leading, 54)
         }
     }
