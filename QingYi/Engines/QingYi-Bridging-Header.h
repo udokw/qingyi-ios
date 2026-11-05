@@ -4,3 +4,4 @@
 //
 
 #include "PikafishBridge.h"
+#include "KataGoBridge.h"

@@ -60,6 +60,13 @@ final class GoGameModel: ObservableObject {
                 self?.startAI()
             }
         }
+
+        // 高档位用 KataGo: 提前在后台加载网络
+        if setup.mode == .ai, setup.level >= KataGoEngine.minimumLevel {
+            DispatchQueue.global(qos: .utility).async {
+                KataGoEngine.shared.preload()
+            }
+        }
     }
 
     // MARK: - 状态文案
@@ -174,11 +181,29 @@ final class GoGameModel: ObservableObject {
         let ko = game.ko
         let level = level
         let last = lastMove
+        let komi = game.komi
+        let history = game.history
         let gen = generation
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let move = GoAI.bestMove(board: board, size: size, color: color,
+            var move: GoPoint?
+            var engineHandled = false
+            if level >= KataGoEngine.minimumLevel {
+                switch KataGoEngine.shared.bestMove(size: size, komi: komi, history: history,
+                                                    board: board, color: color, level: level) {
+                case .move(let point):
+                    move = point
+                    engineHandled = true
+                case .pass:
+                    engineHandled = true
+                case .unavailable:
+                    break
+                }
+            }
+            if !engineHandled {
+                move = GoAI.bestMove(board: board, size: size, color: color,
                                      ko: ko, level: level, lastMove: last)
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.generation == gen else { return }
                 self.thinking = false
