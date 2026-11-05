@@ -92,6 +92,10 @@ targets:
           # josekifix 依赖 JOSEKIFIX 宏, 未启用时这些 .c 无法独立编译;
           # engine.c 里的引用也都在 #ifdef JOSEKIFIX 内.
           - "josekifix/**"
+          # 分布式引擎同样依赖 DISTRIBUTED 宏 (tree 结构的 htable/hbits),
+          # 未启用时这两块源码无法单独编译.
+          - "distributed/**"
+          - "uct/slave.c"
       - path: QingYi/Engines/PachiBridge.cpp
       - path: QingYi/Engines/PachiBridge.h
     settings:
