@@ -89,6 +89,9 @@ targets:
           # Pachi 里存在同名头文件 (random.h / util.h), 放进 Headers 阶段会撞输出路径.
           # 头文件靠相对路径 include, 不需要参与构建.
           - "**/*.h"
+          # josekifix 依赖 JOSEKIFIX 宏, 未启用时这些 .c 无法独立编译;
+          # engine.c 里的引用也都在 #ifdef JOSEKIFIX 内.
+          - "josekifix/**"
       - path: QingYi/Engines/PachiBridge.cpp
       - path: QingYi/Engines/PachiBridge.h
     settings:
