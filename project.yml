@@ -66,6 +66,7 @@ targets:
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/QingYi/Engines/KataGo/cpp"
           - "$(SRCROOT)/QingYi/Engines/KataGo/external/eigen"
+          - "$(SRCROOT)/QingYi/Engines/KataGo/cpp/external/tclap-1.2.5/include"
         SKIP_INSTALL: "YES"
         PRODUCT_NAME: KataGo
 
