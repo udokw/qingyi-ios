@@ -50,6 +50,7 @@ struct Theme {
     let dlgLine: Color
 
     var isHara: Bool { id == .hara }
+    var name: String { id.name }
 
     static func of(_ id: ThemeID) -> Theme {
         id == .hara ? .hara : .monument

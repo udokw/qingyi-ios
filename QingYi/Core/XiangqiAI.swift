@@ -29,7 +29,7 @@ enum XiangqiAI {
         let deadline = Date().addingTimeInterval(timeLimit)
 
         var ordered = orderMoves(moves, in: root)
-        var best = ordered[0].move
+        var best = ordered[0]
         var bestScore = -Int.max / 2
         var results: [ScoredMove] = []
 
@@ -42,15 +42,15 @@ enum XiangqiAI {
 
             for (idx, candidate) in ordered.enumerated() {
                 if Date() > deadline && depth > 1 { break }
-                var move = candidate.move
+                var move = candidate
                 move = root.makeSearchMove(move)
                 let score = -search(root, depth: depth - 1, alpha: -beta, beta: -alpha,
                                     ply: 1, deadline: deadline, nodes: &searchNodes)
                 root.unmakeSearchMove(move)
-                iterationResults.append(ScoredMove(move: candidate.move, score: score))
+                iterationResults.append(ScoredMove(move: candidate, score: score))
                 if score > iterationScore {
                     iterationScore = score
-                    iterationBest = candidate.move
+                    iterationBest = candidate
                 }
                 if score > alpha { alpha = score }
                 _ = idx
@@ -62,7 +62,7 @@ enum XiangqiAI {
                 results = iterationResults
                 // 下一轮按本轮得分排序, 提升剪枝效率
                 let sorted = iterationResults.sorted { $0.score > $1.score }
-                ordered = sorted
+                ordered = sorted.map { $0.move }
             }
             if abs(bestScore) > 20000 { break }
         }
