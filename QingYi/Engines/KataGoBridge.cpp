@@ -165,14 +165,26 @@ QyGoEngine* qy_katago_create(const char* modelPath, const char* configPath) {
     std::cout.rdbuf(g_output);
 
     engine->worker = std::thread([engine]() {
+        // TCLAP 会把 args[0] 当作程序名丢弃 (main.cpp 里传的是 "gtp"),
+        // 少这一项会让 "-config" 被吞掉, 解析失败后 TCLAP 直接 exit(1),
+        // 在 iOS 上表现为选 7 级以上立即闪退.
         std::vector<std::string> args = {
+            "gtp",
             "-config", engine->configPath,
             "-model",  engine->modelPath,
             "-override-config",
             "numSearchThreads=2,nnMaxBatchSize=1,logAllGTPCommunication=false,"
             "logSearchInfo=false,logToStderr=false,startupPrintMessageToStderr=false",
         };
-        MainCmds::gtp(args);
+        try {
+            MainCmds::gtp(args);
+        } catch (const std::exception& e) {
+            // 引擎初始化/加载失败时回一行错误, 让 Swift 侧立刻判定不可用并回退本地 AI,
+            // 避免异常逃出线程导致 std::terminate 闪退.
+            std::cout << "? katago error: " << e.what() << std::endl;
+        } catch (...) {
+            std::cout << "? katago error: unknown" << std::endl;
+        }
     });
 
     return engine;
