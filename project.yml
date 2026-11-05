@@ -58,6 +58,7 @@ targets:
           - "neuralnet/*.cu"
       - path: QingYi/Engines/KataGoBridge.cpp
       - path: QingYi/Engines/KataGoBridge.h
+      - path: QingYi/Engines/KataGo/cpp/tests/testcommon.cpp
     settings:
       base:
         CLANG_CXX_LANGUAGE_STANDARD: c++17
