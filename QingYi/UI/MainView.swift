@@ -422,7 +422,7 @@ struct GoConfigDialog: View {
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
                 Spacer(minLength: 0)
             }
-            Text("纯 Swift 启发式引擎（气/提子/棋形）· 等级 1-10 由入门到业余中段\n安卓的 KataGo / Pachi / GNU Go 为原生 .so，无法在 iOS 上运行")
+            Text("等级 1-6 由 Pachi 引擎驱动，7-10 由 KataGo 神经网络驱动\n均为进程内静态链接，无需联网")
                 .font(.system(size: 11))
                 .foregroundColor(theme.foot)
                 .lineSpacing(3)
@@ -547,7 +547,7 @@ struct XiangqiConfigDialog: View {
                     .padding(.vertical, 2)
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
             }
-            Text("纯 Swift 迭代加深搜索 + 吃子排序 · 等级 1-10 由入门到业余中段\n安卓的 Fairy-Stockfish / Pikafish 为原生 .so，无法在 iOS 上运行")
+            Text("等级 1-6 由本地搜索 AI 驱动，7-10 由 Pikafish 引擎驱动\n进程内静态链接，无需联网")
                 .font(.system(size: 11))
                 .foregroundColor(theme.foot)
                 .lineSpacing(3)

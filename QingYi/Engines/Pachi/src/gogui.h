@@ -1,0 +1,76 @@
+#ifndef PACHI_GOGUI_H
+#define PACHI_GOGUI_H
+
+#include "gtp.h"
+#include "stats.h"
+
+/* How many moves to display ? */
+#define GOGUI_NBEST 9
+#define GOGUI_MANY 100
+#define GOGUI_NSEQ 20
+
+typedef enum gogui_reporting {
+	UR_GOGUI_NONE,
+	UR_GOGUI_BEST,
+	UR_GOGUI_SEQ,
+	UR_GOGUI_WR,
+	UR_GOGUI_RAVE_BEST,
+	UR_GOGUI_RAVE_WR,
+	UR_GOGUI_RAVE_AMAF_CRIT,
+	UR_GOGUI_RAVE_PLAYOUTS
+} gogui_reporting_t;
+
+extern enum gogui_reporting gogui_livegfx;
+
+extern char gogui_gfx_buf[];
+
+
+enum parse_code cmd_gogui_analyze_commands(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_version(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_toggle_debugging_commands(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_bad_selfatari(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_playout_moves(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_livegfx(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_best_moves(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_winrates(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_influence(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_score_est(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_point_criticality(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_move_criticality(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_amaf_criticality(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_amaf_playouts(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_set_criticality_filters(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_final_score(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_dcnn_best(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_dcnn_colors(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_dcnn_rating(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_color_palette(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_joseki_moves(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_joseki_show_pattern(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_pattern_best(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_pattern_colors(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_pattern_rating(board_t *board, engine_t *engine, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_pattern_features(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_pattern_gammas(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_show_spatial(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_spatial_size(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_josekifix_show_pattern(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+enum parse_code cmd_gogui_josekifix_dump_templates(board_t *b, engine_t *e, time_info_t *ti, gtp_t *gtp);
+
+void gogui_show_best_moves(FILE *f, board_t *b, enum stone color, best_moves_t *best);
+void gogui_show_winrates(FILE *f, board_t *b, enum stone color, best_moves_t *best);
+void gogui_show_best_seq(FILE *f, board_t *b, enum stone color, mq_t *seq);
+
+/* Signed colormap functions */
+void gogui_signed_colormap_fixed_scale(FILE *f, board_t *b, float *values, float min, float max);
+void gogui_signed_colormap_linear(FILE *f, board_t *b, float *values);
+void gogui_signed_colormap_softmax(FILE *f, board_t *b, float *orig_values, float sharpen_factor);
+void gogui_signed_colormap_cube(FILE *f, board_t *b, float *orig_values);
+
+void gogui_criticality_text_display(FILE *fh, board_t *b, coord_t coord, float *criticality, move_stats_t *playouts);
+void gogui_amaf_playouts_display(FILE *fh, board_t *b, move_stats_t *playouts, float amaf_playouts[], coord_t coord);
+float gogui_get_rave_amaf_criticality_filter();
+
+
+#endif
+

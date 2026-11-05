@@ -1,0 +1,89 @@
+#define DEBUG
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "board.h"
+#include "debug.h"
+#include "timeinfo.h"
+#include "engine.h"
+#include "gtp.h"
+#include "pattern/spatial.h"
+#include "pattern/prob.h"
+
+static void
+fake_ownermap(board_t *b, ownermap_t *ownermap)
+{
+	int games = 100;
+	
+	ownermap_init(ownermap);
+	foreach_point(b) {
+		enum stone color = board_at(b, c);
+		if (color == S_OFFBOARD)  continue;
+		ownermap->map[c][S_NONE] += games;
+	} foreach_point_end;
+	ownermap->playouts += games;
+}
+
+static void
+dump_spatials(board_t *b, pattern_config_t *pc)
+{
+	/* Skip suicides */
+	if (b->moves && board_at(b, last_move(b).coord) == S_NONE)  return;
+
+	//board_print(b, stderr);
+
+	enum stone color = board_to_play(b);
+	pattern_t pats[b->flen];
+	floating_t probs[b->flen];
+	ownermap_t ownermap;  fake_ownermap(b, &ownermap);  /* fake */
+	pattern_context_t ct;
+	pattern_context_init(&ct, pc, &ownermap);
+	pattern_rate_moves_vanilla(b, color, probs, pats, &ct);
+	
+	for (int f = 0; f < b->flen; f++) {
+		if (isnan(probs[f]))  continue;
+		fprintf(stderr, "move %i: %s: ", b->moves, coord2sstr(b->f[f]));
+		
+		pattern_t *pat = &pats[f];
+		for (int i = 0; i < pat->n; i++) {
+			if (pat->f[i].id < FEAT_SPATIAL3) continue;
+			char s[256]; feature2str(s, &pat->f[i]);
+			fprintf(stderr, "%s ", s);
+		}
+		fprintf(stderr, "\n");
+	}
+}
+
+/* Replay games dumping spatials every 10 moves. */
+bool
+spatial_regression_test(board_t *b, char *arg)
+{
+	time_info_t ti[S_MAX];
+	ti[S_BLACK] = ti_none;
+	ti[S_WHITE] = ti_none;
+
+	pattern_config_t pc;
+	patterns_init(&pc, NULL, false, true);
+
+	gtp_t gtp;  gtp_init(&gtp, b);
+	char buf[4096];
+	engine_t e;  memset(&e, 0, sizeof(e));  /* dummy engine */
+	for (int lineno = 1; fgets(buf, 4096, stdin); lineno++) {
+		if (buf[0] == '#') continue;
+		//if (!strncmp(buf, "clear_board", 11))  printf("\nGame %i:\n", gtp.played_games + 1);
+		// if (DEBUGL(1))  fprintf(stderr, "IN: %s", buf);
+
+		enum parse_code c = gtp_parse(&gtp, b, &e, ti, buf);
+		if (gtp.error || (c != P_OK && c != P_ENGINE_RESET))
+			die("stdin:%i  gtp command '%s' failed, aborting.\n", lineno, buf);
+
+		if (b->moves % 10 == 1)
+			dump_spatials(b, &pc);
+		b->superko_violation = false;       // never cleared currently.
+	}
+
+	return true;
+}

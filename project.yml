@@ -1,6 +1,6 @@
 name: QingYi
 options:
-  bundleIdPrefix: com.sijia
+  bundleIdPrefix: com.qingyi
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -78,6 +78,28 @@ targets:
         SKIP_INSTALL: "YES"
         PRODUCT_NAME: KataGo
 
+  # Pachi 围棋引擎 (GPLv2), 纯 C, 作为 1-6 级的人机引擎.
+  Pachi:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: QingYi/Engines/Pachi/src
+        excludes:
+          - "COPYING"
+      - path: QingYi/Engines/PachiBridge.cpp
+      - path: QingYi/Engines/PachiBridge.h
+    settings:
+      base:
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        CLANG_CXX_LIBRARY: libc++
+        GCC_C_LANGUAGE_STANDARD: gnu11
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - NDEBUG=1
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/QingYi/Engines/Pachi/src"
+        SKIP_INSTALL: "YES"
+        PRODUCT_NAME: Pachi
+
   QingYi:
     type: application
     platform: iOS
@@ -88,11 +110,14 @@ targets:
           - "Engines/Pikafish/**"
           - "Engines/KataGo/**"
           - "Engines/KataGoBridge.cpp"
+          - "Engines/Pachi/**"
+          - "Engines/PachiBridge.cpp"
       - path: QingYi/Resources
         buildPhase: resources
     dependencies:
       - target: Pikafish
       - target: KataGo
+      - target: Pachi
     settings:
       base:
         SWIFT_OBJC_BRIDGING_HEADER: QingYi/Engines/QingYi-Bridging-Header.h
@@ -110,7 +135,7 @@ targets:
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lz"
-        PRODUCT_BUNDLE_IDENTIFIER: com.sijia.qingyi
+        PRODUCT_BUNDLE_IDENTIFIER: com.qingyi.app
         PRODUCT_NAME: QingYi
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"

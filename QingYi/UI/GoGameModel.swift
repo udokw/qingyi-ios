@@ -61,10 +61,17 @@ final class GoGameModel: ObservableObject {
             }
         }
 
-        // 高档位用 KataGo: 提前在后台加载网络
-        if setup.mode == .ai, setup.level >= KataGoEngine.minimumLevel {
-            DispatchQueue.global(qos: .utility).async {
-                KataGoEngine.shared.preload()
+        // 高档位用 KataGo, 低档位用 Pachi: 提前在后台加载引擎
+        if setup.mode == .ai {
+            if setup.level >= KataGoEngine.minimumLevel {
+                DispatchQueue.global(qos: .utility).async {
+                    KataGoEngine.shared.preload()
+                }
+            } else {
+                let level = setup.level
+                DispatchQueue.global(qos: .utility).async {
+                    PachiEngine.shared.preload(level: level)
+                }
             }
         }
     }
@@ -191,6 +198,17 @@ final class GoGameModel: ObservableObject {
             if level >= KataGoEngine.minimumLevel {
                 switch KataGoEngine.shared.bestMove(size: size, komi: komi, history: history,
                                                     board: board, color: color, level: level) {
+                case .move(let point):
+                    move = point
+                    engineHandled = true
+                case .pass:
+                    engineHandled = true
+                case .unavailable:
+                    break
+                }
+            } else {
+                switch PachiEngine.shared.bestMove(size: size, komi: komi, history: history,
+                                                   board: board, color: color, level: level) {
                 case .move(let point):
                     move = point
                     engineHandled = true

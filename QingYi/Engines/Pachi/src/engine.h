@@ -1,0 +1,222 @@
+#ifndef PACHI_ENGINE_H
+#define PACHI_ENGINE_H
+
+#include "gtp.h"
+#include "ownermap.h"
+
+typedef struct {
+	int      n;		/* stored moves */
+	int	 size;		/* max number of moves (c[] and r[] size) */
+	coord_t *c;		/* move coords array */
+	float   *r;		/* move value array */
+	void*   *d;		/* move extra data (optional) */
+} best_moves_t;
+
+typedef struct {
+	char *name;
+	char *val;
+} option_t;
+
+#define ENGINE_OPTIONS_MAX 50
+
+typedef struct {
+	option_t o[ENGINE_OPTIONS_MAX];
+	int      n;
+} options_t;
+
+
+enum engine_id {
+	E_UCT,
+#ifdef DCNN
+	E_DCNN,
+#ifdef EXTRA_ENGINES
+	E_BLUNDERSCAN,
+#endif
+#endif
+	E_PATTERN,
+#ifdef EXTRA_ENGINES
+	E_PATTERNSCAN,
+#endif
+	E_JOSEKI,
+	E_JOSEKILOAD,
+#ifdef JOSEKIFIX
+	E_JOSEKIFIX,
+	E_JOSEKIFIXLOAD,
+#ifdef EXTRA_ENGINES
+	E_JOSEKIFIXSCAN,
+#endif
+#endif
+	E_RANDOM,
+	E_REPLAY,
+	E_MONTECARLO,
+#ifdef DISTRIBUTED
+	E_DISTRIBUTED,
+#endif
+#ifdef JOSEKIFIX
+	E_EXTERNAL,
+#endif
+	E_MAX,
+};
+
+
+typedef struct engine engine_t;
+
+typedef void (*engine_init_t)(engine_t *e, board_t *b);
+typedef void (*engine_reset_t)(engine_t *e, board_t *b);
+typedef bool (*engine_setoption_t)(engine_t *e, board_t *b, const char *optname, char *optval, char **err, bool setup, bool *reset);
+typedef enum parse_code (*engine_notify_t)(engine_t *e, board_t *b, int id, char *cmd, char *args, gtp_t *gtp);
+typedef void (*engine_notify_after_t)(engine_t *e, board_t *b, int id, char *cmd, gtp_t *gtp);
+typedef void (*engine_board_print_t)(engine_t *e, board_t *b, FILE *f);
+typedef char *(*engine_notify_play_t)(engine_t *e, board_t *b, move_t *m, char *enginearg, bool *print_board);
+typedef char *(*engine_chat_t)(engine_t *e, board_t *b, bool in_game, char *from, char *cmd);
+typedef coord_t (*engine_genmove_t)(engine_t *e, board_t *b, time_info_t *ti, enum stone color, bool pass_all_alive);
+typedef char *(*engine_genmoves_t)(engine_t *e, board_t *b, time_info_t *ti, enum stone color,
+				   char *args, bool pass_all_alive, void **stats_buf, int *stats_size);
+typedef void  (*engine_best_moves_t)(engine_t *e, board_t *b, time_info_t *ti, enum stone color, best_moves_t *best);
+typedef void (*engine_analyze_t)(engine_t *e, board_t *b, enum stone color, int start);
+typedef void (*engine_evaluate_t)(engine_t *e, board_t *b, time_info_t *ti, floating_t *vals, enum stone color);
+typedef bool (*engine_dead_groups_t)(engine_t *e, board_t *b, mq_t *mq);
+typedef ownermap_t* (*engine_ownermap_t)(engine_t *e, board_t *b);
+typedef char *(*engine_result_t)(engine_t *e, board_t *b);
+typedef void (*engine_collect_stats_t)(engine_t *e, board_t *b, move_t *m, best_moves_t *best, int moves, int games);
+typedef void (*engine_print_stats_t)(engine_t *e, strbuf_t *buf, int moves, int games);
+typedef void (*engine_stop_t)(engine_t *e);
+typedef void (*engine_done_t)(engine_t *e);
+
+
+/* Engine data structure. A new engine instance is spawned
+ * for each new game during the program lifetime. */
+struct engine {
+	int   id;
+	char *name;
+	char *comment;
+	char *version;				    /* Replaces default gtp answer if present. */
+
+	options_t options;
+
+	bool keep_on_clear;			    /* Do not reset engine on clear_board. */
+	bool keep_on_undo;			    /* Do not reset engine after undo. */
+
+	engine_reset_t		 reset;		    /* If present, engine own reset logic. */
+
+	engine_setoption_t       setoption;	    /* Set/change engine option. Don't call directly.
+						     * @optname/@optval: option name/value. @optval may be changed by engine.
+						     * Returns true on success, otherwise @err has error msg.
+						     * @setup: true if called during engine setup.
+						     * @reset: set by engine if option can only be set at setup time. */
+
+	engine_notify_play_t     notify_play;	    /* Notify engine of play commands received. */
+	engine_notify_t          notify;            /* Notify engine of all gtp commands received. */
+	engine_notify_after_t    notify_after;      /* Like notify() but called after running default handler. */
+	engine_board_print_t     board_print;	    /* Engine-specific board_print() function. */
+	engine_chat_t            chat;		    /* Answer kgs chat commands. */
+
+	engine_genmove_t         genmove;           /* Generate a move. If pass_all_alive is true, <pass> shall be generated only */
+	engine_genmove_t         genmove_analyze;   /* if all stones on the board can be considered alive, without regard to "dead" */
+						    /* considered stones. */
+	engine_genmoves_t        genmoves;	    /* Used by distributed engine */
+	engine_best_moves_t      best_moves;	    /* List best moves for current position.
+						     * Call engine_best_move() for data to be initialized correctly. */
+	engine_analyze_t         analyze;	    /* Tell engine to start pondering for the sake of frontend running Pachi. */
+
+	engine_evaluate_t        evaluate;	    /* Evaluate feasibility of player @color playing at all free moves. Will
+						     * simulate each move from b->f[i] for time @ti, then set
+						     * 1-max(opponent_win_likelihood) in vals[i]. */
+
+	engine_dead_groups_t     dead_groups;       /* One dead group per queued move (coord_t is (ab)used as group_t). */
+	engine_ownermap_t        ownermap;	    /* Return current ownermap, if engine supports it. */
+	engine_result_t          result;	    /* More detailed output of last genmove. */
+	
+	engine_collect_stats_t	 collect_stats;	    /* Engine-specific t-predict stats (collect) */
+	engine_print_stats_t	 print_stats;	    /* Engine-specific t-predict stats (print)   */
+
+	engine_stop_t            stop;		    /* Pause any background thinking being done, but do not tear down
+						     * any data structures yet. */
+	engine_done_t            done;		    /* e->data and e will be free()d by caller afterwards. */
+
+	void *data;				    /* Pointer to engine-specific data structure. */
+};
+
+
+/* Initial sanity checks. */
+void engine_init_checks(void);
+
+/* Convert engine name to id. */
+enum engine_id engine_name_to_id(const char *name);
+
+/* List supported engines (show_all: show/hide internal engines). */
+char* supported_engines(bool show_all);
+
+/* Initialize engine. Call engine_done() later when finished with it. */
+void engine_init(engine_t *e, int id, const char *e_arg, board_t *b);
+void engine_init_(engine_t *e, int id, board_t *b);
+
+/* Clean up what engine_init() did. */
+void engine_done(engine_t *e);
+
+/* Allocate and initialize a new engine.
+ * Call delete_engine() when done. */
+engine_t* new_engine(int id, const char *e_arg, board_t *b);
+void delete_engine(engine_t **e);
+
+/* engine_done() + engine_init(), more or less. */
+void engine_reset(engine_t *e, board_t *b);
+
+
+/* Convenience functions for engine actions: */
+void engine_board_print(engine_t *e, board_t *b, FILE *f);
+void engine_best_moves(engine_t *e, board_t *b, time_info_t *ti, enum stone color, best_moves_t *best);
+struct ownermap* engine_ownermap(engine_t *e, board_t *b);
+/* Ask engine for dead stones. Return whether these are safe:
+ *   true:  Normally last move was pass and engine knows dead groups. These are good.
+ *   false: Weird stuff going on (asking for dead groups in the middle of a game ?).
+ *          Dead groups are being computed on the fly, scoring with these will be
+ *          unreliable if there are unclear groups or position is not final. */
+bool engine_dead_groups(engine_t *e, board_t *b, mq_t *mq);
+
+/* Set/change engine option(s). May reset engine if needed.
+ * New options are saved, so persist across engine resets.
+ * Returns true if successful, otherwise @err has error msg. */
+bool engine_setoptions(engine_t *e, board_t *b, const char *arg, char **err);
+/* For engines internal use, ensures optval is properly strdup'ed / freed since engine may change it. */
+bool engine_setoption(engine_t *e, board_t *b, option_t *option, char **err, bool setup, bool *reset);
+
+
+/* Engines best moves common code */
+
+void best_moves_init(best_moves_t *best, coord_t c[], float r[], int size);
+/* Add move c with probability r */
+void best_moves_add(best_moves_t *best, coord_t c, float r);
+int  best_moves_print(best_moves_t *best, char *str);
+
+/* Shortcut for declaration + init */
+#define best_moves_setup(best, best_c, best_r, nbest) \
+	best_moves_t best; \
+	best_moves_init(&(best), (best_c), (best_r), (nbest));
+
+/* best_move functions with extra move data */
+void best_moves_init_full(best_moves_t *best, coord_t c[], float r[], void* d[], int size);
+void best_moves_add_full(best_moves_t *best, coord_t c, float r, void *d);
+
+
+/* Engine options */
+
+void      engine_options_print(options_t *options);
+option_t *engine_options_lookup(options_t *options, const char *name);
+void      engine_options_concat(strbuf_t *buf, options_t *options);
+void	  engine_options_add(options_t *options, const char *name, const char *val);
+void      engine_options_copy(options_t *dest, options_t *src);
+
+/* For options which need to be set at engine setup time: */
+#define ENGINE_SETOPTION_NEED_RESET  \
+	do {  if (!setup) {  *reset = true; return false;  } } while(0);
+
+#define engine_setoption_error(fmt, ...)  \
+	do { \
+		sbprintf(ebuf, fmt, __VA_ARGS__); \
+		*err = ebuf->str; \
+		return false; \
+	} while(0)
+
+
+#endif
