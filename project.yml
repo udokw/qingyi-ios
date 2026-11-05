@@ -15,7 +15,7 @@ targets:
   # Pikafish 中国象棋引擎 (GPLv3), 静态链接进 App 进程内运行.
   # iOS 禁止 fork/exec 子进程, 因此不能按桌面方式走独立可执行文件 + 管道.
   Pikafish:
-    type: staticLibrary
+    type: library.static
     platform: iOS
     sources:
       - path: QingYi/Engines/Pikafish/src
