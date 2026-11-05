@@ -20,7 +20,7 @@ struct SealView: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: size / 3.0, weight: .medium, design: .serif))
+            .font(.system(size: size / 3.0, weight: .medium))
             .foregroundColor(.white)
             .multilineTextAlignment(.center)
             .lineSpacing(-2)
@@ -34,7 +34,7 @@ struct MiniSeal: View {
     var theme: Theme
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium, design: .serif))
+            .font(.system(size: 10, weight: .medium))
             .foregroundColor(.white)
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
@@ -48,7 +48,7 @@ struct TitleSeal: View {
     var theme: Theme
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium, design: .serif))
+            .font(.system(size: 11, weight: .medium))
             .foregroundColor(.white)
             .multilineTextAlignment(.center)
             .lineSpacing(-2)
@@ -237,9 +237,15 @@ struct DialogScaffold<Content: View>: View {
                 .onTapGesture { onDismiss() }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(theme.accent)
-                        .frame(width: 9, height: 9)
+                    if theme.isHara {
+                        Rectangle()
+                            .fill(theme.accent)
+                            .frame(width: 9, height: 9)
+                    } else {
+                        Circle()
+                            .fill(theme.accent)
+                            .frame(width: 9, height: 9)
+                    }
                     Text(title)
                         .font(.system(size: 18, weight: .bold, design: .serif))
                         .foregroundColor(theme.title)

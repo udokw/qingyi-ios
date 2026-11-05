@@ -33,7 +33,7 @@ struct XiangqiGameView: View {
                     .padding(.top, 8)
 
                 Text(model.moveLine)
-                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .font(.system(size: 13))
                     .foregroundColor(theme.sub)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -42,7 +42,7 @@ struct XiangqiGameView: View {
 
                 if !theme.isHara {
                     Text("楚 河 汉 界 · 一 局 清 弈")
-                        .font(.system(size: 11, weight: .regular, design: .serif))
+                        .font(.system(size: 11))
                         .tracking(3.3)
                         .foregroundColor(theme.foot)
                         .padding(.top, 6)
@@ -128,7 +128,7 @@ struct XiangqiGameView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 4)
             Text(model.detailSubtitle)
-                .font(.system(size: 14, weight: .regular, design: .serif))
+                .font(.system(size: 14))
                 .tracking(1.4)
                 .foregroundColor(theme.sub)
                 .padding(.top, 6)
@@ -239,10 +239,10 @@ struct XiangqiGameView: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15, weight: .regular, design: .serif))
+                    .font(.system(size: 15))
                     .foregroundColor(danger ? theme.dangerText : (selected ? theme.primaryText : theme.title))
                 Text(en)
-                    .font(.system(size: 9, weight: .regular, design: .serif))
+                    .font(.system(size: 9))
                     .tracking(1)
                     .foregroundColor(selected ? theme.primaryText.opacity(0.7) : theme.sub)
             }
@@ -274,7 +274,7 @@ struct XiangqiGameView: View {
 
     private var signature: some View {
         Text(isReview ? "清 弈 · 棋 谱 复 盘" : "清 弈 引 擎 · 象 棋")
-            .font(.system(size: 11, weight: .regular, design: .serif))
+            .font(.system(size: 11))
             .tracking(2.75)
             .foregroundColor(theme.foot)
             .frame(maxWidth: .infinity, alignment: .center)

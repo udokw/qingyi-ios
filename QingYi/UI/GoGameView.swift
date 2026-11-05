@@ -36,7 +36,7 @@ struct GoGameView: View {
                         .frame(width: 140, height: 10)
                         .padding(.top, 8)
                     Text("安 静 的 一 手")
-                        .font(.system(size: 11, weight: .regular, design: .serif))
+                        .font(.system(size: 11))
                         .tracking(3.3)
                         .foregroundColor(theme.foot)
                         .padding(.top, 16)
@@ -91,7 +91,7 @@ struct GoGameView: View {
         if theme.isHara {
             ZStack {
                 Text(model.eyebrowText)
-                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .font(.system(size: 13))
                     .tracking(3.9)
                     .foregroundColor(theme.sub)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -172,7 +172,7 @@ struct GoGameView: View {
     private var commentBlock: some View {
         if let comment = model.comment, !comment.isEmpty {
             Text(comment)
-                .font(.system(size: 12, weight: .regular, design: .serif))
+                .font(.system(size: 12))
                 .foregroundColor(theme.sub)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 2)
@@ -258,10 +258,10 @@ struct GoGameView: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Text(title)
-                    .font(.system(size: 15, weight: .regular, design: .serif))
+                    .font(.system(size: 15))
                     .foregroundColor(danger ? theme.dangerText : (selected ? theme.primaryText : theme.title))
                 Text(en)
-                    .font(.system(size: 9, weight: .regular, design: .serif))
+                    .font(.system(size: 9))
                     .tracking(1)
                     .foregroundColor(selected ? theme.primaryText.opacity(0.7) : theme.sub)
             }
@@ -293,7 +293,7 @@ struct GoGameView: View {
 
     private var signature: some View {
         Text(isReview ? "清 弈 · 棋 谱 打 谱" : "清 弈 引 擎 · 围 棋")
-            .font(.system(size: 11, weight: .regular, design: .serif))
+            .font(.system(size: 11))
             .tracking(2.75)
             .foregroundColor(theme.foot)
             .frame(maxWidth: .infinity, alignment: .center)

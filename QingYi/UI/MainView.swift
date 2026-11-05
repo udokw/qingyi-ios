@@ -35,7 +35,7 @@ struct MainView: View {
                             .padding(.top, 12)
 
                         Text("多引擎 · 围棋与象棋")
-                            .font(.system(size: 14, weight: .regular, design: .serif))
+                            .font(.system(size: 14))
                             .tracking(1.7)
                             .foregroundColor(theme.sub)
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -52,9 +52,9 @@ struct MainView: View {
 
                         footer
                     }
-                    .frame(minHeight: geo.size.height, alignment: .top)
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
+                    .frame(minHeight: geo.size.height, alignment: .top)
                 }
             }
 
@@ -124,7 +124,7 @@ struct MainView: View {
                 app.toggleTheme()
             } label: {
                 Text("主题 · \(theme.name)")
-                    .font(.system(size: 13, weight: .regular, design: .serif))
+                    .font(.system(size: 13))
                     .foregroundColor(theme.sub)
                     .padding(.vertical, 5)
                     .contentShape(Rectangle())
@@ -248,7 +248,7 @@ struct MainView: View {
                         .font(.system(size: 18, weight: .bold, design: .serif))
                         .foregroundColor(theme.entryTitle)
                     Text(desc)
-                        .font(.system(size: 13, weight: .regular, design: .serif))
+                        .font(.system(size: 13))
                         .foregroundColor(theme.entryDesc)
                         .lineLimit(1)
                 }
@@ -256,7 +256,7 @@ struct MainView: View {
                 Spacer(minLength: 8)
 
                 Text("›")
-                    .font(.system(size: 22, weight: .regular, design: .serif))
+                    .font(.system(size: 22))
                     .foregroundColor(theme.sub)
             }
             .padding(.horizontal, 18)
@@ -282,7 +282,7 @@ struct MainView: View {
                         .font(.system(size: 18, weight: .bold, design: .serif))
                         .foregroundColor(theme.entryTitle)
                     Text(desc)
-                        .font(.system(size: 13, weight: .regular, design: .serif))
+                        .font(.system(size: 13))
                         .foregroundColor(theme.entryDesc)
                         .lineLimit(1)
                 }
@@ -293,7 +293,7 @@ struct MainView: View {
                     Text("●").foregroundColor(theme.entryTitle)
                     Text("○").foregroundColor(theme.prefixColor)
                 }
-                .font(.system(size: 13, weight: .regular, design: .serif))
+                .font(.system(size: 13))
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 28)
@@ -317,11 +317,11 @@ struct MainView: View {
             }
             HStack(spacing: 8) {
                 Text("v1.0.0")
-                    .font(.system(size: 12, weight: .regular, design: .serif))
+                    .font(.system(size: 12))
                     .foregroundColor(theme.foot)
                 Spacer(minLength: 8)
                 Text("Powered by QingYi Engine")
-                    .font(.system(size: 12, weight: .regular, design: .serif))
+                    .font(.system(size: 12))
                     .foregroundColor(theme.foot)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -380,7 +380,7 @@ struct GoConfigDialog: View {
                     HStack(spacing: 14) {
                         stepButton("−") { if handicap > 0 { handicap -= 1 } }
                         Text(handicap == 0 ? "不让子" : "让 \(handicap) 子")
-                            .font(.system(size: 15, design: .serif))
+                            .font(.system(size: 15))
                             .foregroundColor(theme.title)
                             .frame(minWidth: 70)
                         stepButton("+") { if handicap < 9 { handicap += 1 } }
@@ -408,7 +408,7 @@ struct GoConfigDialog: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Text("引擎")
-                    .font(.system(size: 13, design: .serif))
+                    .font(.system(size: 13))
                     .foregroundColor(theme.sub)
                     .frame(width: 44, alignment: .leading)
                 Text("清弈内置引擎")
@@ -423,7 +423,7 @@ struct GoConfigDialog: View {
                 Spacer(minLength: 0)
             }
             Text("iOS 为纯内置引擎，棋力随等级 1-10 变化")
-                .font(.system(size: 11, design: .serif))
+                .font(.system(size: 11))
                 .foregroundColor(theme.foot)
                 .padding(.leading, 54)
         }
@@ -432,7 +432,7 @@ struct GoConfigDialog: View {
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title)
-                .font(.system(size: 13, design: .serif))
+                .font(.system(size: 13))
                 .foregroundColor(theme.sub)
             content()
         }
@@ -441,7 +441,7 @@ struct GoConfigDialog: View {
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, design: .serif))
+                .font(.system(size: 13))
                 .foregroundColor(selected ? theme.btnText : theme.sub)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
@@ -498,7 +498,7 @@ struct XiangqiConfigDialog: View {
                 engineRow
                 VStack(alignment: .leading, spacing: 9) {
                     Text("执子")
-                        .font(.system(size: 13, design: .serif))
+                        .font(.system(size: 13))
                         .foregroundColor(theme.sub)
                     HStack(spacing: 10) {
                         choice("执红 · 先手", selected: red) { red = true }
@@ -507,7 +507,7 @@ struct XiangqiConfigDialog: View {
                 }
                 VStack(alignment: .leading, spacing: 9) {
                     Text("等级  \(Int(level))")
-                        .font(.system(size: 13, design: .serif))
+                        .font(.system(size: 13))
                         .foregroundColor(theme.sub)
                     ThemedSlider(value: $level, range: 1...10, step: 1, theme: theme)
                 }
@@ -532,7 +532,7 @@ struct XiangqiConfigDialog: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Text("引擎")
-                    .font(.system(size: 13, design: .serif))
+                    .font(.system(size: 13))
                     .foregroundColor(theme.sub)
                     .frame(width: 44, alignment: .leading)
                 Text("清弈内置引擎")
@@ -547,7 +547,7 @@ struct XiangqiConfigDialog: View {
                     .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.accent, lineWidth: 0.6))
             }
             Text("iOS 为纯内置引擎，棋力随等级 1-10 变化")
-                .font(.system(size: 11, design: .serif))
+                .font(.system(size: 11))
                 .foregroundColor(theme.foot)
                 .padding(.leading, 54)
         }
@@ -556,7 +556,7 @@ struct XiangqiConfigDialog: View {
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, design: .serif))
+                .font(.system(size: 13))
                 .foregroundColor(selected ? theme.btnText : theme.sub)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
