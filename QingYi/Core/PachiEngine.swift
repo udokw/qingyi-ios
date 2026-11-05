@@ -35,6 +35,12 @@ final class PachiEngine {
         lock.lock()
         defer { lock.unlock() }
 
+        // 空盘(Pachi 先手)不交给引擎: 这条路径下 GTP 里没有任何落子,
+        // Pachi 会走 genmove 直出首手的特殊分支, 在进程内运行时会崩.
+        // 空盘开局交给本地 AI 感知, 盘面有子之后仍由 Pachi 计算.
+        let isBoardEmpty = board.allSatisfy { row in row.allSatisfy { $0 == .empty } }
+        if isBoardEmpty { return .unavailable }
+
         guard ensureReadyLocked(level: level) else { return .unavailable }
 
         guard sendOk("boardsize \(size)"),
@@ -70,7 +76,9 @@ final class PachiEngine {
 
         let text = response.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if text == "pass" || text == "resign" || text.isEmpty { return .pass }
-        if let point = Self.parseCoordinate(response, size: size) {
+        if let point = Self.parseCoordinate(response, size: size),
+           point.x >= 0, point.x < size,
+           board[point.y][point.x] == .empty {
             return .move(point)
         }
         return .unavailable
@@ -190,7 +198,7 @@ final class PachiEngine {
               let columnIndex = columns.firstIndex(of: chars[0]),
               let rank = Int(String(chars[1...])) else { return nil }
         let y = size - rank
-        guard y >= 0, y < size else { return nil }
+        guard columnIndex < size, y >= 0, y < size else { return nil }
         return GoPoint(x: columnIndex, y: y)
     }
 }
