@@ -55,6 +55,12 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: QingYi/Engines/QingYi-Bridging-Header.h
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         CLANG_CXX_LIBRARY: libc++
+        # bridge.cpp 直接 include 引擎头文件, 宏必须与 Pikafish target 完全一致
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - IS_64BIT=1
+          - NDEBUG=1
+          - USE_NEON=1
+          - ZSTD_DISABLE_ASM=1
         HEADER_SEARCH_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/QingYi/Engines/Pikafish/src"
