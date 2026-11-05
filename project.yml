@@ -1,0 +1,52 @@
+name: QingYi
+options:
+  bundleIdPrefix: com.sijia
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.7"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+
+targets:
+  QingYi:
+    type: application
+    platform: iOS
+    sources:
+      - path: QingYi
+        excludes:
+          - "Resources/**"
+      - path: QingYi/Resources
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sijia.qingyi
+        PRODUCT_NAME: QingYi
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: "清弈"
+        INFOPLIST_KEY_CFBundleShortVersionString: "1.0.0"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: "YES"
+        INFOPLIST_KEY_UIFileSharingEnabled: "YES"
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
+
+schemes:
+  QingYi:
+    build:
+      targets:
+        QingYi: all
+    run:
+      config: Debug
+    archive:
+      config: Release
