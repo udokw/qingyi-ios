@@ -98,10 +98,10 @@ final class XiangqiGameModel: ObservableObject {
     var eyebrowText: String {
         let n = mode == .review ? reviewIndex : game.plies
         if mode == .review {
-            if n == 0 { return "象 棋 · 复 盘 · 开 头" }
-            return "象 棋 · 复 盘 · 第 \(ChineseNumber.text(n)) 着"
+            if n == 0 { return "象棋 · 复盘 · 开头" }
+            return "象棋 · 复盘 · 第 \(ChineseNumber.text(n)) 着"
         }
-        return "象 棋 · 第 \(ChineseNumber.text(max(n, 1))) 着"
+        return "象棋 · 第 \(ChineseNumber.text(max(n, 1))) 着"
     }
 
     /// 最近 8 着中文记谱

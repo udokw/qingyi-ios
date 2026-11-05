@@ -118,10 +118,10 @@ final class GoGameModel: ObservableObject {
     var eyebrowText: String {
         let n = mode == .review ? reviewIndex : game.history.count
         if mode == .review {
-            if n == 0 { return "棋 谱 · 开 头" }
-            return "棋 谱 · 第 \(ChineseNumber.text(n)) 手"
+            if n == 0 { return "棋谱 · 开头" }
+            return "棋谱 · 第 \(ChineseNumber.text(n)) 手"
         }
-        return "对 局 · 第 \(ChineseNumber.text(max(n, 1))) 手"
+        return "对局 · 第 \(ChineseNumber.text(max(n, 1))) 手"
     }
 
     var lastMove: GoPoint? { game.history.last?.point }
