@@ -11,6 +11,13 @@ final class SoundPlayer {
     private init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
+        for name in ["xq_move", "xq_check"] {
+            guard let url = Bundle.main.url(forResource: name, withExtension: "wav"),
+                  let player = try? AVAudioPlayer(contentsOf: url) else { continue }
+            player.prepareToPlay()
+            player.volume = 1.0
+            cache[name] = player
+        }
     }
 
     func setEnabled(_ value: Bool) {
