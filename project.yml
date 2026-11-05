@@ -63,6 +63,9 @@ targets:
           - USE_EIGEN_BACKEND=1
           - NDEBUG=1
           - NO_GIT_REVISION=1
+          - NO_LIBZIP=1
+          - BYTE_ORDER=1234
+          - LITTLE_ENDIAN=1234
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/QingYi/Engines/KataGo/cpp"
           - "$(SRCROOT)/QingYi/Engines/KataGo/external/eigen"
