@@ -86,6 +86,9 @@ targets:
       - path: QingYi/Engines/Pachi/src
         excludes:
           - "COPYING"
+          # Pachi 里存在同名头文件 (random.h / util.h), 放进 Headers 阶段会撞输出路径.
+          # 头文件靠相对路径 include, 不需要参与构建.
+          - "**/*.h"
       - path: QingYi/Engines/PachiBridge.cpp
       - path: QingYi/Engines/PachiBridge.h
     settings:
