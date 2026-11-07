@@ -2,7 +2,7 @@
 
 本文逐字段对照 Android 端实现与 iOS 端实现。**Android 代码是唯一权威**（`app/src/main/java/com/sijia/go/net/*.java`）；`docs/lan-multiplayer-design.md` 中落后于代码的数值以本文和代码为准。
 
-核对方式：逐行阅读两端源码做静态比对。本机无 macOS/Xcode，**iOS 侧未编译、未运行**，所有结论均属「已静态核对」，未经真机互通验证。
+核对方式：逐行阅读两端源码做静态比对。本机无 macOS/Xcode，iOS 侧通过 GitHub Actions（macOS 无签名构建）编译验证；**尚未真机运行**，协议结论仍属静态核对，未经 Android ↔ iOS 真机互通验证。
 
 参考实现：
 
@@ -355,11 +355,18 @@ iOS 原有的 `XiangqiGame.positionKey` 字母表不同（`'i'..'o'`/`'q'..'w'`�
 6. **探活 `STALE(-1)` 未单独保留**：iOS 收到非 `probe_ack` 或校验不过的回包按「删除」处理，Android 侧等同于判死，行为一致。
 7. **iOS 依赖 TXT `addr` 连接**：未使用 SRV 解析出的主机名回退。Android 房主总是写入 IPv4，正常局域网可用；若某设备 TXT 缺 `addr`，iOS 无法加入（Android 可用 SRV 回退）。这是已知限制。
 
-## 10. 尚未验证（需真机 / CI 确认）
+## 10. 断线与前后台
+
+- 断线只暂停时钟并保留棋盘，**不结束对局、不退出页面**；`LanGameView` / `LanLobbyView` 没有任何在连接关闭时 `dismiss()` 的路径。
+- 宽限期内（120 秒）重连成功即恢复对局；超时才判负，结果原因码为 `disconnect`。
+- 客机重连循环与房主宽限计时都是本地实现，不新增协议字段，Android 侧无感知。
+- App 进入后台时系统会挂起进程：iOS 会收回本地重连/宽限计时，回到前台后重新给一轮完整宽限，避免「切出去一会儿回来就判负」。注意房主若不在后台，仍按协议在 120 秒后判负；这一点与 Android 一致。
+
+## 11. 尚未验证（需真机 / CI 确认）
 
 | 项 | 风险 |
 | --- | --- |
-| 全部 iOS 代码能否编译 | 本机无 Xcode；`@MainActor` 单例在 View 属性初始化器中的访问、`guard let x` 简写等只能在 CI 验证 |
+| ~~全部 iOS 代码能否编译~~ | 已验证：GitHub Actions run `42356180389` 无签名构建通过（2026-11-07），产物 `QingYi-unsigned-ipa` |
 | iOS ↔ Android 实际互通 | 需两台真机在同一 Wi-Fi 下完成：发现 → 探活 → 加入 → 开局 → 落子 → 悔棋 → 认输 → 断线重连 |
 | Bonjour 类型写法 | Network 框架用不带点的 `_qingyi._tcp`；`NSBonjourServices` 同样不带点。若发现不到，优先怀疑此处 |
 | `NWTXTRecord.dictionary` 键值 | 依赖系统把 TXT 解析成字符串字典，需真机确认 |
