@@ -1,9 +1,17 @@
 name: Build unsigned IPA
 
+# 触发方式:
+#   1. push 到 main/master
+#   2. 手动: Actions -> Build unsigned IPA -> Run workflow
+#   3. 打 tag (v1.0.0 形式): 自动构建并把 IPA 附到 GitHub Release
 on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,6 +34,7 @@ jobs:
             -scheme QingYi \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -37,9 +46,16 @@ jobs:
 
       - name: Package unsigned IPA
         run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/QingYi.app"
+          test -d "$APP"
+          rm -rf Payload QingYi-unsigned.ipa
           mkdir -p Payload
-          cp -R build/Build/Products/Release-iphoneos/QingYi.app Payload/
+          cp -R "$APP" Payload/
           zip -qry QingYi-unsigned.ipa Payload
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" || true
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" || true
+          ls -lh QingYi-unsigned.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -47,3 +63,11 @@ jobs:
           name: QingYi-unsigned-ipa
           path: QingYi-unsigned.ipa
           if-no-files-found: error
+
+      # 只有打 tag 时才创建 Release, 方便直接下载安装
+      - name: Attach IPA to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: QingYi-unsigned.ipa
+          generate_release_notes: true

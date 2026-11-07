@@ -8,6 +8,7 @@ struct MainView: View {
     @State private var showGoConfig = false
     @State private var showXqConfig = false
     @State private var showLibrary = false
+    @State private var lanKind: GameKind?
     @State private var pendingGo: GoSetup?
     @State private var pendingXQ: XiangqiSetup?
 
@@ -97,6 +98,10 @@ struct MainView: View {
         }
         .fullScreenCover(item: $xqSetup) { setup in
             XiangqiGameView(setup: setup)
+                .environmentObject(app)
+        }
+        .fullScreenCover(item: $lanKind) { kind in
+            LanLobbyView(game: kind)
                 .environmentObject(app)
         }
         .onChange(of: pendingGo) { value in
@@ -195,19 +200,23 @@ struct MainView: View {
                 entryRow(1, entryTitle(1), entryDesc(1)) { openEntry(1) }
                 Hairline(color: theme.divider)
                 entryRow(2, entryTitle(2), entryDesc(2)) { openEntry(2) }
+                Hairline(color: theme.divider)
+                entryRow(3, entryTitle(3), entryDesc(3)) { openEntry(3) }
             }
         } else {
             VStack(spacing: 17) {
                 entryCard(0, entryTitle(0), entryDesc(0), leading: 0, trailing: 24) { openEntry(0) }
                 entryCard(1, entryTitle(1), entryDesc(1), leading: 14, trailing: 14) { openEntry(1) }
                 entryCard(2, entryTitle(2), entryDesc(2), leading: 24, trailing: 0) { openEntry(2) }
+                entryCard(3, entryTitle(3), entryDesc(3), leading: 14, trailing: 14) { openEntry(3) }
             }
         }
     }
 
     private func entryTitle(_ index: Int) -> String {
-        if index == 0 { return app.kind == .go ? "人机对弈" : "人机对弈" }
+        if index == 0 { return "人机对弈" }
         if index == 1 { return "本地双人" }
+        if index == 2 { return "联机对弈" }
         return app.kind == .go ? "棋谱欣赏" : "棋谱复盘"
     }
 
@@ -220,6 +229,11 @@ struct MainView: View {
         if index == 1 {
             return app.kind == .go ? "两人同机对弈" : "红黑双方同机对弈"
         }
+        if index == 2 {
+            return app.kind == .go
+                ? "同一局域网 · 房号或 IP 加入"
+                : "同一局域网 · 红黑对坐"
+        }
         return app.kind == .go ? "内置棋谱 · 支持导入 SGF" : "导入 PGN / FEN 逐步打谱"
     }
 
@@ -229,6 +243,8 @@ struct MainView: View {
         } else if index == 1 {
             if app.kind == .go { pendingGo = GoSetup(mode: .local) }
             else { pendingXQ = XiangqiSetup(mode: .local) }
+        } else if index == 2 {
+            lanKind = app.kind
         } else {
             showLibrary = true
         }
@@ -299,7 +315,7 @@ struct MainView: View {
             .padding(.vertical, 28)
             .background(
                 RoundedRectangle(cornerRadius: theme.entryRadius)
-                    .fill(theme.entryBg[index])
+                    .fill(theme.entryBg[index % theme.entryBg.count])
             )
             .contentShape(Rectangle())
         }
@@ -316,7 +332,7 @@ struct MainView: View {
                 Hairline(color: theme.divider)
             }
             HStack(spacing: 8) {
-                Text("v1.0.0")
+                Text("v1.0.1")
                     .font(.system(size: 12))
                     .foregroundColor(theme.foot)
                 Spacer(minLength: 8)

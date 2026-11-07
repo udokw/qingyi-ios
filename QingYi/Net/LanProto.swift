@@ -1,0 +1,331 @@
+import Foundation
+import CryptoKit
+import Darwin
+
+/// 联机协议常量与信封。对端实现：Android `com.sijia.go.net.Proto`。
+enum LanProto {
+    static let version = 1
+
+    /// 统一服务类型：围棋/象棋共用一个发现入口，棋种放在 TXT 的 game 字段。
+    /// Network 框架使用不带尾点的形式；NetService / NSBonjourServices 使用带尾点的形式。
+    static let serviceTypeNW = "_qingyi._tcp"
+    static let serviceTypeMDNS = "_qingyi._tcp."
+    /// 棋种专用类型：房主额外广告，仅作兼容与未来扩展，发现端按 game 过滤。
+    static let goServiceTypeNW = "_qingyi-go._tcp"
+    static let xqServiceTypeNW = "_qingyi-xiangqi._tcp"
+    static let allServiceTypesNW = [serviceTypeNW, goServiceTypeNW, xqServiceTypeNW]
+    static let allServiceTypesMDNS = ["_qingyi._tcp.", "_qingyi-go._tcp.", "_qingyi-xiangqi._tcp."]
+
+    static let defaultPort: UInt16 = 41234
+    static let portTries = 11
+    static let maxFrame = 65536
+
+    /// 断线宽限：宽限期内时钟暂停，到点判负。
+    static let reconnectGraceMs = 120_000
+    /// 链路静默判定
+    static let hostIdleMs = 13_000
+    static let guestIdleMs = 15_000
+    static let hostPingMs = 5_000
+    static let guestReconnectMs = 1_500
+    /// 房主等待首帧（hello / probe）的超时，与 Android `LanHost` 的 3 秒一致
+    static let hostFirstFrameMs = 3_000
+    /// 发现探活
+    static let probeTimeoutMs = 1_500
+    static let probeFirstTimeoutMs = 1_200
+    static let probeIntervalMs = 3_500
+    static let probeTtlMs = 15_000
+    static let newEntryGraceMs = 6_000
+
+    /// 棋盘规模
+    static let goSize = 19
+    static let goKomi = 7.5
+
+    static let goGame = "go"
+    static let xiangqiGame = "xiangqi"
+
+    static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    /// 单调时钟毫秒，用于链路/计时，不受系统时间调整影响
+    static func uptimeMs() -> Int64 { Int64(ProcessInfo.processInfo.systemUptime * 1000) }
+
+    // MARK: - 信封
+
+    static func message(_ type: String, room: String, from: String,
+                        payload: [String: Any] = [:]) -> [String: Any] {
+        [
+            "v": version,
+            "t": type,
+            "sid": newSessionId(),
+            "ts": nowMs(),
+            "seq": 0,
+            "room": room,
+            "from": from,
+            "p": payload
+        ]
+    }
+
+    static func type(_ msg: [String: Any]?) -> String {
+        guard let msg else { return "" }
+        return string(msg, "t")
+    }
+
+    static func payload(_ msg: [String: Any]?) -> [String: Any] {
+        guard let p = msg?["p"] as? [String: Any] else { return [:] }
+        return p
+    }
+
+    static func newSessionId() -> String {
+        String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)).lowercased()
+    }
+
+    /// 4 位房间码，去掉容易混淆的 I/L/O/U。
+    static func newRoomCode() -> String {
+        let alphabet = Array("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
+        return String((0..<4).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] })
+    }
+
+    /// 注册实例 ID：每次注册新生成 8 位，用于同一房间码去重。
+    static func newInstanceId() -> String {
+        String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
+    }
+
+    // MARK: - 取值（JSONSerialization 会把数字解析成 NSNumber）
+
+    static func string(_ dict: [String: Any], _ key: String, _ def: String = "") -> String {
+        guard let v = dict[key] else { return def }
+        if let s = v as? String { return s }
+        if let n = v as? NSNumber { return n.stringValue }
+        return def
+    }
+
+    static func int(_ dict: [String: Any], _ key: String, _ def: Int = 0) -> Int {
+        guard let v = dict[key] else { return def }
+        if let n = v as? NSNumber { return n.intValue }
+        if let s = v as? String, let n = Int(s.trimmingCharacters(in: .whitespaces)) { return n }
+        return def
+    }
+
+    static func int64(_ dict: [String: Any], _ key: String, _ def: Int64 = 0) -> Int64 {
+        guard let v = dict[key] else { return def }
+        if let n = v as? NSNumber { return n.int64Value }
+        if let s = v as? String, let n = Int64(s.trimmingCharacters(in: .whitespaces)) { return n }
+        return def
+    }
+
+    static func double(_ dict: [String: Any], _ key: String, _ def: Double = 0) -> Double {
+        guard let v = dict[key] else { return def }
+        if let n = v as? NSNumber { return n.doubleValue }
+        if let s = v as? String, let n = Double(s.trimmingCharacters(in: .whitespaces)) { return n }
+        return def
+    }
+
+    static func bool(_ dict: [String: Any], _ key: String, _ def: Bool = false) -> Bool {
+        guard let v = dict[key] else { return def }
+        if let b = v as? Bool { return b }
+        if let n = v as? NSNumber { return n.boolValue }
+        if let s = v as? String { return s == "true" || s == "1" }
+        return def
+    }
+
+    static func array(_ dict: [String: Any], _ key: String) -> [[String: Any]] {
+        (dict[key] as? [[String: Any]]) ?? []
+    }
+
+    // MARK: - 颜色
+
+    /// 座位/颜色整数：1=黑(围棋)/红(象棋)，2=白/黑
+    static func colorChar(game: String, seat: Int) -> String {
+        if game == goGame { return seat == 1 ? "B" : "W" }
+        return seat == 1 ? "R" : "B"
+    }
+
+    static func seatOfColorChar(game: String, _ text: String) -> Int? {
+        let t = text.uppercased()
+        if game == goGame {
+            if t == "B" { return 1 }
+            if t == "W" { return 2 }
+            return nil
+        }
+        if t == "R" { return 1 }
+        if t == "B" { return 2 }
+        return nil
+    }
+
+    /// 围棋用：黑/白
+    static func goColorName(_ color: Int) -> String { color == 1 ? "黑" : "白" }
+
+    /// 象棋用：红/黑
+    static func xqColorName(_ color: Int) -> String { color == 1 ? "红" : "黑" }
+
+    static func gameName(_ game: String) -> String {
+        game == xiangqiGame ? "象棋" : "围棋"
+    }
+
+    // MARK: - TXT 记录
+
+    /// Bonjour TXT 记录编码：每项为 1 字节长度 + UTF-8 的 key=value。
+    static func txtData(_ dict: [String: String]) -> Data {
+        var out = Data()
+        for key in dict.keys.sorted() {
+            guard let value = dict[key] else { continue }
+            let entry = Array("\(key)=\(value)".utf8)
+            guard entry.count <= 255 else { continue }
+            out.append(UInt8(entry.count))
+            out.append(contentsOf: entry)
+        }
+        return out
+    }
+
+    // MARK: - 本机地址
+
+    /// 取本机 IPv4（优先 en0/en1，其次任意非回环接口）。取不到返回空串。
+    static func localIPv4Address() -> String {
+        var fallback = ""
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return "" }
+        defer { freeifaddrs(ifaddr) }
+
+        var pointer: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = pointer {
+            let interface = current.pointee
+            if let addr = interface.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
+                let name = String(cString: interface.ifa_name)
+                if name != "lo0" {
+                    var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    var sockAddr = addr.pointee
+                    let result = getnameinfo(&sockAddr, socklen_t(sockAddr.sa_len),
+                                             &host, socklen_t(host.count),
+                                             nil, 0, NI_NUMERICHOST)
+                    if result == 0 {
+                        let ip = String(cString: host)
+                        if name == "en0" || name == "en1" { return ip }
+                        if fallback.isEmpty { fallback = ip }
+                    }
+                }
+            }
+            pointer = interface.ifa_next
+        }
+        return fallback
+    }
+
+    // MARK: - 摘要
+
+    /// 与 Android 一致的 SHA-256 十六进制（小写）。
+    static func sha256Hex(_ text: String) -> String {
+        let digest = SHA256.hash(data: Data(text.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 象棋 hash：SHA-256 后取前 8 字节（16 字符）
+    static func sha256Prefix8(_ text: String) -> String {
+        let digest = SHA256.hash(data: Data(text.utf8))
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// 消息类型。与 Android `Proto` 的常量逐字一致。
+enum LanMsg {
+    static let hello = "hello"
+    static let helloAck = "hello_ack"
+    static let helloReject = "hello_reject"
+    static let lobby = "lobby"
+    static let ready = "ready"
+    static let gameStart = "game_start"
+    static let move = "move"
+    static let moveAck = "move_ack"
+    static let moveReject = "move_reject"
+    static let snapshot = "state_snapshot"
+    static let syncRequest = "sync_request"
+    static let undoRequest = "undo_request"
+    static let undoResponse = "undo_response"
+    static let undoApplied = "undo_applied"
+    static let resign = "resign"
+    static let drawOffer = "draw_offer"
+    static let drawResponse = "draw_response"
+    static let clock = "clock"
+    static let ping = "ping"
+    static let pong = "pong"
+    static let probe = "probe"
+    static let probeAck = "probe_ack"
+    static let gameOver = "game_over"
+    static let bye = "bye"
+
+    static let eGameMismatch = "E_GAME_MISMATCH"
+    static let eRoomFull = "E_ROOM_FULL"
+    static let eBadRoom = "E_BAD_ROOM"
+    static let eVersion = "E_VERSION"
+}
+
+/// 结果中文文案，映射规则与 Android `ResultText` 保持一致。仅用于展示。
+enum LanResultText {
+    static func text(gameId: String, code: String, reason: String, detail: String) -> String {
+        let c = code.trimmingCharacters(in: .whitespaces)
+        let r = reason.trimmingCharacters(in: .whitespaces)
+        let d = detail.trimmingCharacters(in: .whitespaces)
+        guard !c.isEmpty else { return d.isEmpty ? "对局结束" : d }
+        let xiangqi = gameId == LanProto.xiangqiGame
+        if c.lowercased() == "draw" { return xiangqi ? xiangqiDraw(d) : "和棋" }
+        return xiangqi ? xiangqiWin(code: c.uppercased(), reason: r, detail: d)
+                       : goResult(code: c.uppercased(), reason: r, detail: d)
+    }
+
+    static func reasonLabel(_ reason: String) -> String {
+        switch reason {
+        case "resign": return "中盘认输"
+        case "timeout": return "超时判负"
+        case "disconnect": return "断线判负"
+        case "score": return "数子结果"
+        case "rule": return "规则判定"
+        case "draw": return "和棋"
+        default: return ""
+        }
+    }
+
+    private static func goResult(code: String, reason: String, detail: String) -> String {
+        guard code.count > 2, let flag = code.first, flag == "B" || flag == "W", code.dropFirst().first == "+" else {
+            return detail.isEmpty ? "对局结束" : detail
+        }
+        let blackWin = flag == "B"
+        let winner = blackWin ? "黑方" : "白方"
+        let loser = blackWin ? "白方" : "黑方"
+        let tag = String(code.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        if reason.lowercased() == "disconnect" { return "\(winner)胜（\(loser)断线判负）" }
+        if tag.uppercased() == "R" { return "\(winner)中盘胜（\(loser)认输）" }
+        if tag.uppercased() == "T" { return "\(winner)胜（\(loser)超时判负）" }
+        if isNumber(tag) { return "\(winner)胜 \(tag) 目" }
+        return "\(winner)胜（\(tag.isEmpty ? "数目" : tag)）"
+    }
+
+    private static func xiangqiWin(code: String, reason: String, detail: String) -> String {
+        let redWin = code.hasPrefix("R")
+        let winner = redWin ? "红方" : "黑方"
+        let loser = redWin ? "黑方" : "红方"
+        switch reason.lowercased() {
+        case "resign": return "\(winner)胜（\(loser)认输）"
+        case "timeout": return "\(winner)胜（\(loser)超时判负）"
+        case "disconnect": return "\(winner)胜（\(loser)断线判负）"
+        default: break
+        }
+        if detail.contains("被将死") { return "\(winner)胜（\(loser)被将死）" }
+        if detail.contains("困毙") { return "\(winner)胜（\(loser)困毙，无子可走）" }
+        if detail.contains("长将") { return "\(winner)胜（\(loser)长将判负）" }
+        return "\(winner)胜"
+    }
+
+    private static func xiangqiDraw(_ detail: String) -> String {
+        if detail.contains("六十回合") || detail.contains("60 回合") { return "和棋（六十回合无吃子）" }
+        if detail.contains("重复") { return "和棋（三次重复局面）" }
+        if detail.contains("协议") { return "和棋（双方协议）" }
+        return "和棋"
+    }
+
+    private static func isNumber(_ s: String) -> Bool {
+        guard !s.isEmpty else { return false }
+        var dot = false
+        for ch in s {
+            if ch == ".", !dot { dot = true; continue }
+            if ch < "0" || ch > "9" { return false }
+        }
+        return true
+    }
+}

@@ -131,9 +131,33 @@ targets:
   QingYi:
     type: application
     platform: iOS
+    info:
+      path: QingYi/Info.plist
+      properties:
+        CFBundleDisplayName: 清弈
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        "UISupportedInterfaceOrientations~ipad":
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        UIApplicationSupportsIndirectInputEvents: true
+        NSLocalNetworkUsageDescription: 用于在同一局域网内发现并连接对手，开启联机对弈。不会访问互联网。
+        # Bonjour 类型按 Apple 要求写成 _服务名._传输协议，不带尾部点。
+        NSBonjourServices:
+          - "_qingyi._tcp"
+          - "_qingyi-go._tcp"
+          - "_qingyi-xiangqi._tcp"
     sources:
       - path: QingYi
         excludes:
+          - "Info.plist"
           - "Resources/**"
           - "Engines/Pikafish/**"
           - "Engines/KataGo/**"
@@ -165,21 +189,12 @@ targets:
           - "-lz"
         PRODUCT_BUNDLE_IDENTIFIER: com.qingyi.app
         PRODUCT_NAME: QingYi
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.1"
+        CURRENT_PROJECT_VERSION: "2"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: "清弈"
-        INFOPLIST_KEY_CFBundleShortVersionString: "1.0.0"
-        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
-        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: "YES"
-        INFOPLIST_KEY_UIFileSharingEnabled: "YES"
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
+        GENERATE_INFOPLIST_FILE: "NO"
 
 schemes:
   QingYi:
