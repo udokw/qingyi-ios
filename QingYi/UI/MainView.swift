@@ -332,7 +332,7 @@ struct MainView: View {
                 Hairline(color: theme.divider)
             }
             HStack(spacing: 8) {
-                Text("v1.0.1")
+                Text("v1.0.2")
                     .font(.system(size: 12))
                     .foregroundColor(theme.foot)
                 Spacer(minLength: 8)

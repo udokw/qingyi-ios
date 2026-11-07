@@ -29,9 +29,6 @@ final class LanHost {
     private var stopped = false
 
     var serviceName: String { "QY-\(roomCode)-\(size)" }
-    var isGuestHandshaked: Bool { guestHandshaked }
-    var hasGuest: Bool { guest != nil }
-    var guestIdleSeconds: TimeInterval { guest?.idleSeconds ?? 0 }
 
     init(roomCode: String, gameId: String, size: Int) {
         self.roomCode = roomCode
@@ -194,10 +191,14 @@ final class LanHost {
         queue.async { self.guestHandshaked = true }
     }
 
+    /// `guest` 只在内部串行队列上读写；外部调用一律入队，避免跨线程访问引用。
     @discardableResult
     func send(_ msg: [String: Any]) -> Bool {
-        guard let guest else { return false }
-        return guest.send(msg)
+        queue.async { [weak self] in
+            guard let self, let guest = self.guest else { return }
+            guest.send(msg)
+        }
+        return true
     }
 
     func closeGuest(_ reason: String = "房主已结束连接") {

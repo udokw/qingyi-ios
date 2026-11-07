@@ -664,6 +664,8 @@ final class LanHub: ObservableObject {
     @Published private(set) var port: UInt16 = 0
     @Published private(set) var linkDown = false
     @Published private(set) var pendingMove = false
+    /// 房主侧是否有客机接入（主线程镜像，避免跨队列读取 LanHost 内部状态）
+    @Published private(set) var guestPresent = false
     @Published private(set) var resultCode = ""
     @Published private(set) var resultDetail = ""
     @Published private(set) var resultReason = ""
@@ -711,7 +713,7 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.1"
+    private let appVersion = "1.0.2"
 
     private init() {}
 
@@ -728,7 +730,7 @@ final class LanHub: ObservableObject {
     var timerEnabled: Bool { mainSec > 0 }
     var supportsScore: Bool { session?.supportsScore() ?? (gameId == LanProto.goGame) }
     var supportsPass: Bool { session?.supportsPass() ?? (gameId == LanProto.goGame) }
-    var hasGuest: Bool { host?.hasGuest ?? false }
+    var hasGuest: Bool { guestPresent }
     var gameLabel: String { LanProto.gameName(gameId) }
 
     var goGame: GoGame? { session?.go }
@@ -839,6 +841,7 @@ final class LanHub: ObservableObject {
     }
 
     private func onGuestChanged(_ connected: Bool) {
+        guestPresent = connected
         if connected { return }
         if state == .playing {
             onHostLinkLost("对手连接已断开")
@@ -958,7 +961,10 @@ final class LanHub: ObservableObject {
         if state == .playing {
             onClientLinkLost(reason.isEmpty ? "连接已断开" : reason)
         } else if state == .lobby {
-            notice = "与房主的连接已断开：\(reason)"
+            // 已进入房间但还没开局时断线：不要停在「等待房主开局」的死界面
+            state = .error
+            lastError = "与房主的连接已断开：\(reason)"
+            notice = lastError
         }
     }
 
@@ -1583,7 +1589,10 @@ final class LanHub: ObservableObject {
         cancelGrace()
         guard state == .playing, linkDown else { return }
         let task = DispatchWorkItem { [weak self] in
-            guard let self, self.state == .playing, self.linkDown, let session = self.session else { return }
+            // 后台恢复瞬间计时器可能先于 scenePhase 回调触发：此时先不判负，
+            // 回到前台后 appMovedToForeground 会重新调度一轮完整宽限。
+            guard let self, self.state == .playing, self.linkDown,
+                  !self.appInBackground, let session = self.session else { return }
             self.hostFinishPayload(session.resultByDisconnect(3 - self.hostColor))
         }
         graceTask = task
@@ -1832,6 +1841,7 @@ final class LanHub: ObservableObject {
         client = nil
         discovery = nil
         session = nil
+        guestPresent = false
         clock = nil
         guestClock = nil
         clockFrozen = false

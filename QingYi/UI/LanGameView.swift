@@ -26,7 +26,7 @@ struct LanGameView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
                     topBar
-                    if hub.linkDown { linkBanner }
+                    if hub.linkDown && hub.state == .playing { linkBanner }
                     boardArea
                     clockRow
                     moveLine
@@ -78,17 +78,22 @@ struct LanGameView: View {
                     .foregroundColor(theme.sub)
             }
             Spacer(minLength: 0)
-            Text(hub.linkDown ? "重连中" : "在线")
+            Text(statusText)
                 .font(.system(size: 12))
-                .foregroundColor(hub.linkDown ? theme.dangerText : theme.foot)
+                .foregroundColor(hub.linkDown && hub.state == .playing ? theme.dangerText : theme.foot)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
                 .overlay(
                     RoundedRectangle(cornerRadius: theme.isHara ? 2 : 10)
-                        .stroke(hub.linkDown ? theme.dangerStroke : theme.divider, lineWidth: 0.8)
+                        .stroke(hub.linkDown && hub.state == .playing ? theme.dangerStroke : theme.divider, lineWidth: 0.8)
                 )
         }
         .padding(.top, 4)
+    }
+
+    private var statusText: String {
+        if hub.state == .finished { return "已结束" }
+        return hub.linkDown ? "重连中" : "在线"
     }
 
     private var linkBanner: some View {

@@ -60,9 +60,6 @@ final class LanConnection {
     var onClosed: ((String) -> Void)?
     var onReady: (() -> Void)?
 
-    /// 距最后一次收到数据的秒数，用于链路静默判定
-    var idleSeconds: TimeInterval { Date().timeIntervalSince(lastReceiveAt) }
-
     init(_ connection: NWConnection, queue: DispatchQueue) {
         self.connection = connection
         self.queue = queue

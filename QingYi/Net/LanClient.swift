@@ -12,8 +12,6 @@ final class LanClient {
     private var connectTimeout: DispatchWorkItem?
     private(set) var connected = false
 
-    var idleSeconds: TimeInterval { connection?.idleSeconds ?? 0 }
-
     func connect(host: String, port: UInt16, timeout: TimeInterval = 6) {
         let trimmed = host.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let nwPort = NWEndpoint.Port(rawValue: port) else {
