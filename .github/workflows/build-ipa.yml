@@ -31,7 +31,8 @@ jobs:
       - name: Self-test gomoku AI turn logic
         run: |
           set -euo pipefail
-          cat > aiselftest.swift <<'SWIFT'
+          mkdir -p ai-selftest
+          cat > ai-selftest/main.swift <<'SWIFT'
           import Foundation
 
           func check(_ ok: Bool, _ label: String) {
@@ -117,7 +118,7 @@ jobs:
             QingYi/Gomoku/GomokuGame.swift \
             QingYi/Gomoku/GomokuAi.swift \
             QingYi/Gomoku/GomokuSoloTurn.swift \
-            aiselftest.swift -o aiselftest
+            ai-selftest/main.swift -o aiselftest
           ./aiselftest
 
       - name: Build app (no code signing)
