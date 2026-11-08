@@ -26,6 +26,100 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      # 五子棋单机 AI 触发自检: 直接编译 GomokuGame / GomokuAi / GomokuSoloTurn
+      # (纯逻辑, 不依赖 SwiftUI/Combine), 跑用例打印 AI 实际坐标, 失败即中断构建.
+      - name: Self-test gomoku AI turn logic
+        run: |
+          set -euo pipefail
+          cat > aiselftest.swift <<'SWIFT'
+          import Foundation
+
+          func check(_ ok: Bool, _ label: String) {
+              print(ok ? "PASS  \(label)" : "FAIL  \(label)")
+              if !ok { exit(1) }
+          }
+
+          let black = GomokuGame.black
+          let white = GomokuGame.white
+
+          // 1. 玩家执黑落子后, 回合必须交给 AI(白)
+          let g = GomokuGame()
+          check(g.tryPlay(9, 9) == GomokuGame.playOK, "玩家(黑) 落 (9,9) 成功")
+          print("  落子后 turn=\(g.turn) (2=白/AI)")
+          check(g.turn == white, "回合已交给白方")
+          check(GomokuSoloTurn.needsAI(isAIMode: true, playerColor: black,
+                                       turn: g.turn, isOver: g.isOver,
+                                       isFull: g.isFull()), "needsAI=true (玩家落子后触发 AI)")
+
+          // 2. AI 决策入口(纯函数)实际返回坐标, 且能落到棋盘上
+          if let mv = GomokuSoloTurn.chooseMove(board: g.copyBoard(), size: g.size,
+                                                me: g.turn, level: 3, renju: false) {
+              print("  AI(白/中级) 返回坐标: (\(mv.x), \(mv.y))")
+              check(g.tryPlay(mv.x, mv.y) == GomokuGame.playOK, "AI 坐标可落子")
+          } else {
+              print("FAIL  AI 返回 nil")
+              exit(1)
+          }
+          check(g.turn == black, "AI 落子后回合回到玩家(黑)")
+          print("  2 手后 moveCount=\(g.moveCount), 棋盘 9,9=\(g.get(9, 9))")
+
+          // 3. 五档难度都能给出合法应手
+          for lv in 1...GomokuAi.maxLevel {
+              let h = GomokuGame()
+              _ = h.tryPlay(9, 9)
+              let mv = GomokuSoloTurn.chooseMove(board: h.copyBoard(), size: h.size,
+                                                 me: h.turn, level: lv, renju: false)
+              print("  Lv\(lv) \(GomokuAi.levelName(lv)) 应手: \(mv.map { "(\($0.x), \($0.y))" } ?? "nil")")
+              check(mv != nil, "Lv\(lv) 有落点")
+          }
+
+          // 4. 玩家执白: 开局就该由 AI(黑) 先走天元
+          let w = GomokuGame()
+          check(GomokuSoloTurn.needsAI(isAIMode: true, playerColor: white,
+                                       turn: w.turn, isOver: false, isFull: false),
+                "执白时开局触发 AI")
+          let opening = GomokuSoloTurn.chooseMove(board: w.copyBoard(), size: w.size,
+                                                  me: w.turn, level: 3, renju: false)
+          print("  AI(黑) 开局: \(opening.map { "(\($0.x), \($0.y))" } ?? "nil")")
+          check(opening?.x == 9 && opening?.y == 9, "空盘走天元")
+
+          // 5. 禁手开启: AI 执黑不落在禁手点
+          let r = GomokuGame()
+          r.isRenju = true
+          _ = r.tryPlay(9, 9)
+          _ = r.tryPlay(9, 10)
+          _ = r.tryPlay(10, 10)
+          _ = r.tryPlay(8, 8)
+          if let mv = GomokuSoloTurn.chooseMove(board: r.copyBoard(), size: r.size,
+                                                me: r.turn, level: 5, renju: true) {
+              let forb = GomokuGame.isForbiddenPoint(r.copyBoard(), size: r.size, x: mv.x, y: mv.y)
+              print("  禁手盘 AI(黑) 选点: (\(mv.x), \(mv.y)) forbidden=\(forb)")
+              check(!forb, "禁手模式不选禁手点")
+          } else {
+              print("FAIL  禁手盘无落点")
+              exit(1)
+          }
+
+          // 6. 终局后不再触发 AI
+          let over = GomokuGame()
+          for i in 0..<5 {
+              _ = over.tryPlay(5 + i, 5)
+              if i < 4 { _ = over.tryPlay(5 + i, 6) }
+          }
+          check(over.isOver, "黑棋五连终局")
+          check(!GomokuSoloTurn.needsAI(isAIMode: true, playerColor: black,
+                                        turn: over.turn, isOver: over.isOver,
+                                        isFull: over.isFull()), "终局后不再叫 AI")
+
+          print("ALL PASS")
+          SWIFT
+          swiftc -O \
+            QingYi/Gomoku/GomokuGame.swift \
+            QingYi/Gomoku/GomokuAi.swift \
+            QingYi/Gomoku/GomokuSoloTurn.swift \
+            aiselftest.swift -o aiselftest
+          ./aiselftest
+
       - name: Build app (no code signing)
         run: |
           set -o pipefail

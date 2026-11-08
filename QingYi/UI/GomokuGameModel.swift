@@ -36,9 +36,7 @@ final class GomokuGameModel: ObservableObject {
         game = GomokuGame()
         game.isRenju = setup.renju
         sync()
-        if mode == .ai, game.turn != playerColor {
-            startAI()
-        }
+        maybeStartAI()
     }
 
     // MARK: - 状态文案
@@ -96,6 +94,9 @@ final class GomokuGameModel: ObservableObject {
             clearTransient()
             sync()
             finishIfNeeded()
+            // 关键：玩家落子后必须由这里把回合交给 AI。
+            // 之前只有 init / restart 调 startAI，玩家（黑）落完子就再没人叫 AI，界面永远停住。
+            maybeStartAI()
         case GomokuGame.playForbidden:
             transientStatus = "黑棋禁手：\(game.forbiddenText(x, y))"
             scheduleTransientClear()
@@ -107,6 +108,16 @@ final class GomokuGameModel: ObservableObject {
 
     // MARK: - AI
 
+    /// 玩家落子 / 悔棋 / 读谱之后，轮到 AI 时自动接手。
+    private func maybeStartAI() {
+        guard GomokuSoloTurn.needsAI(isAIMode: mode == .ai,
+                                     playerColor: playerColor,
+                                     turn: game.turn,
+                                     isOver: isOver,
+                                     isFull: game.isFull()) else { return }
+        startAI()
+    }
+
     private func startAI() {
         guard mode == .ai, !isOver else { return }
         thinking = true
@@ -115,23 +126,48 @@ final class GomokuGameModel: ObservableObject {
         let n = game.size
         let me = game.turn
         let lv = level
+        let renjuNow = game.isRenju
         aiToken += 1
         let token = aiToken
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let mv = GomokuAi.choose(board: snapshotBoard, size: n, me: me, level: lv)
+            let mv = GomokuSoloTurn.chooseMove(board: snapshotBoard, size: n, me: me,
+                                               level: lv, renju: renjuNow)
             DispatchQueue.main.async {
                 guard let self, self.aiToken == token else { return }
                 self.thinking = false
-                guard let mv, !self.isOver else { return }
-                _ = self.game.tryPlay(mv.x, mv.y)
-                self.clearTransient()
+                guard !self.isOver else { return }
+                var moved = false
+                if let mv, self.game.tryPlay(mv.x, mv.y) == GomokuGame.playOK {
+                    moved = true
+                }
+                // 兜底：选点为空或落在禁手点（黑棋禁手把候选全过滤掉）时，
+                // 依次试任意空点，避免 AI 回合静默卡死。
+                if !moved { moved = self.playFirstLegalMove() }
+                if moved {
+                    self.clearTransient()
+                } else if !self.game.isFull() {
+                    self.transientStatus = "AI 没有合法落点，请悔棋或开新局"
+                }
                 self.sync()
                 self.finishIfNeeded()
-                if self.hintsEnabled, self.mode == .ai, !self.isOver {
+                if self.hintsEnabled, self.mode == .ai, !self.isOver,
+                   self.game.turn == self.playerColor {
                     self.requestHint()
                 }
             }
         }
+    }
+
+    /// 依次尝试棋盘上的空点（会自动跳过禁手点），成功返回 true。
+    private func playFirstLegalMove() -> Bool {
+        for y in 0..<game.size {
+            for x in 0..<game.size {
+                if game.isEmpty(x, y), game.tryPlay(x, y) == GomokuGame.playOK {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     // MARK: - 操作
@@ -151,6 +187,7 @@ final class GomokuGameModel: ObservableObject {
         hint = nil
         clearTransient()
         sync()
+        maybeStartAI()
     }
 
     func resign() {
@@ -200,10 +237,12 @@ final class GomokuGameModel: ObservableObject {
         let n = game.size
         let me = turn
         let lv = level
+        let renjuNow = game.isRenju
         aiToken += 1
         let token = aiToken
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let mv = GomokuAi.choose(board: snapshotBoard, size: n, me: me, level: lv)
+            let mv = GomokuSoloTurn.chooseMove(board: snapshotBoard, size: n, me: me,
+                                               level: lv, renju: renjuNow)
             DispatchQueue.main.async {
                 guard let self, self.aiToken == token else { return }
                 guard let mv else {
@@ -242,9 +281,7 @@ final class GomokuGameModel: ObservableObject {
         thinking = false
         replaying = false
         sync()
-        if mode == .ai, game.turn != playerColor {
-            startAI()
-        }
+        maybeStartAI()
     }
 
     // MARK: - 存谱 / 读谱
@@ -319,6 +356,7 @@ final class GomokuGameModel: ObservableObject {
         resultText = nil
         transientStatus = "回放完成 · 共 \(g.moveCount) 手" + (g.isOver ? "" : "（可继续对弈）")
         sync()
+        maybeStartAI()
     }
 
     func setAlert(_ a: GameAlert?) { alert = a }
