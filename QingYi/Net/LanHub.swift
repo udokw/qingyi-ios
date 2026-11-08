@@ -720,7 +720,8 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.7"
+    /// 从 Bundle 读取，随 project.yml 的 MARKETING_VERSION 自动同步（原来手写常会忘记改）
+    private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
 
     private init() {}
 

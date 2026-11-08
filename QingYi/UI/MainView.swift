@@ -332,7 +332,8 @@ struct MainView: View {
                 Hairline(color: theme.divider)
             }
             HStack(spacing: 8) {
-                Text("v1.0.7")
+                // 版本号从 Bundle 读取，随 project.yml 的 MARKETING_VERSION 自动同步
+                Text("v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"))
                     .font(.system(size: 12))
                     .foregroundColor(theme.foot)
                 Spacer(minLength: 8)
