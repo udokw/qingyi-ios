@@ -416,9 +416,10 @@ struct LanGameView: View {
     }
 
     private var stateLineText: String {
-        // 一过性提示（如「还没轮到你走棋」）只在几秒内显示，
-        // 其余时间必须回到权威信息：手数 + 最新一手。
-        if hub.noticeIsFresh { return hub.notice }
+        // 一过性提示只在几秒内显示，其余时间必须回到权威信息：手数 + 最新一手。
+        // 唯独轮次提示不允许作为提示出现：「还没轮到你走棋」只由下面的状态自动追加，
+        // 否则会出现「右上角轮到你落子、底下却写还没轮到你」的自相矛盾。
+        if hub.noticeIsFresh, hub.notice != "还没轮到你走棋" { return hub.notice }
         if hub.state != .playing { return hub.state == .finished ? "对局已结束" : "等待对手加入…" }
         if hub.scorePending { return hub.isHost ? "数子确认 · 请点「确认数子」" : "数子确认 · 等待房主" }
         let base: String
