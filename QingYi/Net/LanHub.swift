@@ -720,7 +720,7 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.6"
+    private let appVersion = "1.0.7"
 
     private init() {}
 
@@ -1281,6 +1281,9 @@ final class LanHub: ObservableObject {
 
     private func hostUndo(_ count: Int) {
         guard let session else { return }
+        // 悔棋改变了局面，之前的数子预览作废，避免确认后按旧比分结束
+        scorePending = false
+        pendingScore = nil
         session.undo(max(1, count))
         if let clock { clock.setTurn(session.turn() == 1 ? 0 : 1) }
         let payload: [String: Any] = [
@@ -1493,6 +1496,8 @@ final class LanHub: ObservableObject {
         case LanMsg.undoApplied:
             pendingUndoFrom = nil
             outgoingUndo = false
+            // 悔棋撤销数子确认（房主已重新结算）
+            scorePending = false
             if let snapshot = p["snapshot"] as? [String: Any] { _ = session?.restore(snapshot) }
             boardVersion += 1
             clockTick += 1
