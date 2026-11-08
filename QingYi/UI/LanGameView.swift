@@ -138,7 +138,10 @@ struct LanGameView: View {
                                  flipped: flipped)
             }
         }
-        .rotationEffect(.degrees(flipped ? 180 : 0))
+        // 象棋不再靠父级旋转翻转（会连带把棋盘文字转倒），
+        // 改由 XiangqiBoardView 内部按坐标镜像翻转，文字天然正立。
+        // 围棋棋盘没有文字，仍用整盘旋转。
+        .rotationEffect(.degrees(game == .go && flipped ? 180 : 0))
         .animation(.easeInOut(duration: 0.2), value: flipped)
     }
 

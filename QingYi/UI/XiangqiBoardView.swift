@@ -9,7 +9,9 @@ struct XiangqiBoardView: View {
     var theme: Theme
     var onTap: (Int, Int) -> Void
     var onDrag: (Int, Int, Int, Int) -> Void
-    /// 客机执黑时整块棋盘被父视图旋转 180°，文字需要再转回来才是正的。
+    /// 客机执黑时按坐标镜像翻转棋盘（x→cols-1-x, y→rows-1-y），
+    /// 与 Android `XiangqiBoardView.px()/py()` 一致。
+    /// 只镜像位置、不旋转画布，所以棋子与「楚河汉界」的文字天然正立。
     var flipped: Bool = false
 
     private let cols = XiangqiGame.cols
@@ -88,7 +90,19 @@ struct XiangqiBoardView: View {
         return Metrics(cell: cell, origin: origin)
     }
 
+    /// 逻辑坐标 → 屏幕坐标的镜像映射；`flipped` 时为 180° 点位镜像。
+    /// 自反：再调用一次即还原，因此也能用于把落点还原成逻辑坐标。
+    private func render(_ p: GoPoint) -> GoPoint {
+        flipped ? GoPoint(x: cols - 1 - p.x, y: rows - 1 - p.y) : p
+    }
+
+    /// 逻辑坐标对应的像素中心（已应用镜像）。
     private func center(of p: GoPoint, _ m: Metrics) -> CGPoint {
+        pixel(render(p), m)
+    }
+
+    /// 未镜像的像素中心，仅用于命中测试的几何换算。
+    private func pixel(_ p: GoPoint, _ m: Metrics) -> CGPoint {
         CGPoint(x: m.origin.x + CGFloat(p.x) * m.cell,
                 y: m.origin.y + CGFloat(p.y) * m.cell)
     }
@@ -145,19 +159,20 @@ struct XiangqiBoardView: View {
             drawPositionMark(&context, at: center(of: p, m), cell: m.cell)
         }
 
-        // 楚河汉界
+        // 楚河汉界：红方视角「左楚河、右汉界」；黑方视角镜像成「左汉界、右楚河」，
+        // 文字本身不旋转，始终正向可读。
         let riverY = top + CGFloat(4.5) * m.cell
         let riverFont = Font.qySerif(m.cell * 0.62)
-        drawUpright(&context,
-                    Text("楚 河")
+        let chuX = left + width * (flipped ? 0.72 : 0.28)
+        let hanX = left + width * (flipped ? 0.28 : 0.72)
+        context.draw(Text("楚 河")
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
-                    at: CGPoint(x: left + width * 0.28, y: riverY))
-        drawUpright(&context,
-                    Text("汉 界")
+                     at: CGPoint(x: chuX, y: riverY), anchor: .center)
+        context.draw(Text("汉 界")
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
-                    at: CGPoint(x: left + width * 0.72, y: riverY))
+                     at: CGPoint(x: hanX, y: riverY), anchor: .center)
 
         // 棋盘外框
         context.stroke(Path(CGRect(origin: .zero, size: CGSize(width: left * 2 + width,
@@ -201,26 +216,10 @@ struct XiangqiBoardView: View {
         context.stroke(Path(ellipseIn: rect.insetBy(dx: 4, dy: 4)),
                        with: .color(side.opacity(0.28)), lineWidth: 0.7)
 
-        drawUpright(&context,
-                    Text(XiangqiGame.pieceName(piece))
+        context.draw(Text(XiangqiGame.pieceName(piece))
                         .font(.qySerif(m.cell * 0.62, weight: .bold))
                         .foregroundColor(side),
-                    at: c)
-    }
-
-    /// 绘制文字。`flipped` 时绕字心再转 180°，抵消父视图对整块棋盘的翻转，
-    /// 保证棋子文字与「楚河/汉界」始终正向可读。
-    private func drawUpright(_ context: inout GraphicsContext, _ text: Text, at point: CGPoint) {
-        guard flipped else {
-            context.draw(text, at: point, anchor: .center)
-            return
-        }
-        context.drawLayer { layer in
-            layer.translateBy(x: point.x, y: point.y)
-            layer.rotate(by: .degrees(180))
-            layer.translateBy(x: -point.x, y: -point.y)
-            layer.draw(text, at: point, anchor: .center)
-        }
+                     at: c, anchor: .center)
     }
 
     private func ring(_ context: inout GraphicsContext, point: GoPoint, metrics m: Metrics,
@@ -238,10 +237,11 @@ struct XiangqiBoardView: View {
         let x = Int(round((location.x - m.origin.x) / m.cell))
         let y = Int(round((location.y - m.origin.y) / m.cell))
         guard x >= 0, x < cols, y >= 0, y < rows else { return nil }
-        let c = center(of: GoPoint(x: x, y: y), m)
+        let c = pixel(GoPoint(x: x, y: y), m)
         let dx = location.x - c.x
         let dy = location.y - c.y
         guard dx * dx + dy * dy <= (m.cell * 0.65) * (m.cell * 0.65) else { return nil }
-        return GoPoint(x: x, y: y)
+        // 屏幕格点 → 逻辑坐标（`render` 自反，翻转时即反向镜像）
+        return render(GoPoint(x: x, y: y))
     }
 }

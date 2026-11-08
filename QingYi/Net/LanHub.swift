@@ -713,7 +713,7 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.3"
+    private let appVersion = "1.0.4"
 
     private init() {}
 
