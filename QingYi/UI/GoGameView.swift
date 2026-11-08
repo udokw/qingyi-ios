@@ -20,16 +20,23 @@ struct GoGameView: View {
 
                 Spacer(minLength: 8)
 
-                GoBoardView(board: model.game.board,
-                            size: model.game.size,
-                            lastMove: model.lastMove,
-                            ko: model.game.ko,
-                            territory: model.territory,
-                            theme: theme) { x, y in
-                    model.tap(x, y)
+                // 棋盘：横向铺满到左右贴屏（boardBleed 抵消父级 6pt 留白），
+                // 纵向吃掉剩余空间；剩余高度不足时按高度收窄，保证整盘可见、不被遮挡。
+                GeometryReader { geo in
+                    let side = GameLayout.fittedSide(availableWidth: geo.size.width,
+                                                     availableHeight: geo.size.height,
+                                                     isXiangqi: false)
+                    GoBoardView(board: model.game.board,
+                                size: model.game.size,
+                                lastMove: model.lastMove,
+                                ko: model.game.ko,
+                                territory: model.territory,
+                                theme: theme) { x, y in
+                        model.tap(x, y)
+                    }
+                    .frame(width: side, height: side)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                // 棋盘用比文字行更窄的留白（GameLayout.boardInset），
-                // 这里把父级 6pt 的留白抵消掉一部分，使实际边长 = 屏宽 − 2×2。
                 .padding(.horizontal, -GameLayout.boardBleed)
                 .padding(.top, 10)
 

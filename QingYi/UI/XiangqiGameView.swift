@@ -20,19 +20,26 @@ struct XiangqiGameView: View {
 
                 Spacer(minLength: 8)
 
-                XiangqiBoardView(board: model.game.board,
-                                 selection: model.selection,
-                                 hints: model.hints,
-                                 lastMove: model.lastMove,
-                                 theme: theme,
-                                 onTap: { x, y in model.tap(x, y) },
-                                 onDrag: { fx, fy, tx, ty in
-                                     model.drag(from: GoPoint(x: fx, y: fy),
-                                                to: GoPoint(x: tx, y: ty))
-                                 })
-                    // 与围棋页同一套棋盘留白（见 GameLayout.boardInset）
-                    .padding(.horizontal, -GameLayout.boardBleed)
-                    .padding(.top, 8)
+                // 与围棋页同一套规则：左右贴屏，纵向按剩余高度收窄
+                GeometryReader { geo in
+                    let side = GameLayout.fittedSide(availableWidth: geo.size.width,
+                                                     availableHeight: geo.size.height,
+                                                     isXiangqi: true)
+                    XiangqiBoardView(board: model.game.board,
+                                     selection: model.selection,
+                                     hints: model.hints,
+                                     lastMove: model.lastMove,
+                                     theme: theme,
+                                     onTap: { x, y in model.tap(x, y) },
+                                     onDrag: { fx, fy, tx, ty in
+                                         model.drag(from: GoPoint(x: fx, y: fy),
+                                                    to: GoPoint(x: tx, y: ty))
+                                     })
+                        .frame(width: side, height: GameLayout.boardHeight(side: side, isXiangqi: true))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .padding(.horizontal, -GameLayout.boardBleed)
+                .padding(.top, 8)
 
                 Text(model.moveLine)
                     .font(.system(size: 13))

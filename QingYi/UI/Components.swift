@@ -303,10 +303,8 @@ struct PaperBackground: View {
 enum GameLayout {
     /// 页面左右留白（文字行、动作区各 6pt）
     static let columnInset: CGFloat = 6
-    /// 棋盘左右留白：比文字行更窄，让棋盘尽量铺满屏宽。
-    /// 单机页用 `boardBleed` 把棋盘从文字行的 6pt 留白里向外顶出去，
-    /// 联机页直接用这个值做 padding —— 两页仍然是同一个来源、同一个尺寸。
-    static let boardInset: CGFloat = 2
+    /// 棋盘左右留白：0 表示左右直接贴屏幕边缘（与联机页一致）。
+    static let boardInset: CGFloat = 0
     /// 单机页棋盘需要向外顶出的距离（= 文字行留白 − 棋盘留白）
     static var boardBleed: CGFloat { columnInset - boardInset }
     /// 动作行行高（单机 actionGrid / reviewGrid 与联机动作区共用）
@@ -323,6 +321,16 @@ enum GameLayout {
     /// 棋盘高度：围棋为正方形，象棋按 10/9 拉高
     static func boardHeight(side: CGFloat, isXiangqi: Bool) -> CGFloat {
         isXiangqi ? side * xiangqiHeightRatio : side
+    }
+
+    /// 单机页实际可用的棋盘边长：
+    /// 宽度优先铺满（左右贴屏），高度不够时按剩余高度收窄，保证整盘可见、不被刘海/底栏遮挡。
+    static func fittedSide(availableWidth: CGFloat,
+                           availableHeight: CGFloat,
+                           isXiangqi: Bool) -> CGFloat {
+        let byWidth = boardSide(availableWidth: availableWidth)
+        let byHeight = max(0, availableHeight) / (isXiangqi ? xiangqiHeightRatio : 1)
+        return max(0, min(byWidth, byHeight))
     }
 }
 
