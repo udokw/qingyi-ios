@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Darwin
 
 /// 「只填房号」加入时的兜底发现：UDP 广播按房号定向查询。
 /// mDNS 被路由器/热点过滤时，UDP 广播通常仍然可用；
@@ -136,8 +137,13 @@ final class LanQueryResponder {
         }
         queue.async { [weak self] in
             guard let self else { return }
+            // 先看是否已经在跑。注意：检查完必须**立刻解锁**——
+            // 后面 socket/bind/recvfrom 都是可能阻塞的 syscall，
+            // 一旦跨 syscall 持锁，主线程上的 stop()/update() 就会被卡死。
             self.lock.lock()
-            if self.running { self.lock.unlock(); return }
+            let alreadyRunning = self.running
+            self.lock.unlock()
+            if alreadyRunning { return }
             let s = socket(AF_INET, SOCK_DGRAM, 0)
             guard s >= 0 else {
                 let e = errno
@@ -145,7 +151,6 @@ final class LanQueryResponder {
                 LanDiagnostics.shared.update {
                     $0.udpStatus = "socket() 失败 POSIX \(e)"
                 }
-                self.lock.unlock()
                 return
             }
             var on: Int32 = 1
@@ -183,7 +188,9 @@ final class LanQueryResponder {
                 }
                 LanLog.shared.add("UDP 41235 bind 失败", ok: false,
                                   "POSIX \(e) \(String(cString: strerror(e)))：继续以单向广播通告兜底")
+                LanStage.mark("host.socket.bind", "fail POSIX \(e)")
             } else {
+                self.lock.lock()
                 self.fd = s
                 self.running = true
                 self.canReceive = true
@@ -195,10 +202,15 @@ final class LanQueryResponder {
                     $0.udpOptions = "SO_REUSEADDR=1 SO_BROADCAST=1 SO_RCVTIMEO=300ms"
                 }
                 LanLog.shared.add("UDP 41235 已监听", ok: true, "0.0.0.0:\(LanProto.queryPort)")
+                LanStage.mark("host.socket.bind", "ok 0.0.0.0:\(LanProto.queryPort)")
             }
 
             var buffer = [UInt8](repeating: 0, count: 2048)
             var lastAnnounce: Int64 = 0
+            var lastRebind: Int64 = LanProto.uptimeMs()
+            var rebindTries = 0
+            var receiving = (bound == 0)
+            var announcedAny = false
             while true {
                 self.lock.lock()
                 let alive = self.running
@@ -229,14 +241,57 @@ final class LanQueryResponder {
                             }
                             LanDiagnostics.shared.update {
                                 $0.sentAnnounces += targets.count
+                                $0.broadcast = targets.joined(separator: " , ")
                                 $0.lastEvent = "room_announce → \(targets.joined(separator: ",")):\(LanProto.queryPort)"
                             }
                             LanLog.shared.add("发送 room_announce", ok: true,
                                               "→ \(targets.joined(separator: ",")):\(LanProto.queryPort) body=\(json)")
+                            if !announcedAny {
+                                announcedAny = true
+                                LanStage.mark("host.announce.start", "\(targets.count) 个目标")
+                            }
                         } else {
                             LanLog.shared.add("构造 room_announce 失败", ok: false, "")
                         }
                     }
+                }
+
+                // 未绑定时绝不能继续 recvfrom：未绑定 socket 的 recvfrom 会立刻返回 EINVAL，
+                // 老代码直接 continue，等于 100% CPU 空转，整机 UI 会被拖到无响应（1.1.6(15) 卡死）。
+                // 这里改为 300ms 节流，并重试 bind，等旧 socket（大厅的发现循环）释放后恢复应答能力。
+                if !receiving {
+                    // 前 5 秒每 300ms 重试一次（发现循环的 socket 是异步关闭的，
+                    // 建房瞬间 41235 往往还被占用，EADDRINUSE 属于预期），之后退到 3 秒一次。
+                    let interval: Int64 = rebindTries < 16 ? 300 : LanProto.announceIntervalMs
+                    if now - lastRebind >= interval {
+                        lastRebind = now
+                        rebindTries += 1
+                        var a = sockaddr_in()
+                        a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                        a.sin_family = sa_family_t(AF_INET)
+                        a.sin_port = LanProto.queryPort.bigEndian
+                        a.sin_addr.s_addr = 0
+                        let retry = withUnsafePointer(to: &a) { p in
+                            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                                bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                            }
+                        }
+                        if retry == 0 {
+                            receiving = true
+                            self.lock.lock()
+                            self.canReceive = true
+                            self.lock.unlock()
+                            LanDiagnostics.shared.update {
+                                $0.udpStatus = "已监听（重试成功）"
+                                $0.udpListen = "0.0.0.0:\(LanProto.queryPort)"
+                            }
+                            LanLog.shared.add("UDP 41235 重试 bind 成功", ok: true,
+                                              "第 \(rebindTries) 次重试")
+                            LanStage.mark("host.socket.bind", "ok 0.0.0.0:\(LanProto.queryPort)（重试 \(rebindTries)）")
+                        }
+                    }
+                    usleep(300_000)
+                    continue
                 }
 
                 var from = sockaddr_in()
@@ -248,7 +303,19 @@ final class LanQueryResponder {
                         }
                     }
                 }
-                if n <= 0 { continue }
+                if n <= 0 {
+                    // 超时（EAGAIN）本来就会等满 SO_RCVTIMEO；其它错误必须主动让出 CPU，
+                    // 否则 socket 被关闭/失效时会变成死循环。
+                    let e = errno
+                    if e != EAGAIN && e != EWOULDBLOCK && e != EINTR {
+                        self.lock.lock()
+                        let fdNow = self.fd
+                        self.lock.unlock()
+                        if fdNow < 0 { break }
+                        usleep(200_000)
+                    }
+                    continue
+                }
                 let body = Data(buffer[0..<n])
                 let text = String(data: body, encoding: .utf8) ?? "<非 UTF-8 \(n) 字节>"
                 guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
@@ -313,6 +380,10 @@ final class LanQueryResponder {
                     $0.lastEvent = "room_reply → \(fromHost):\(fromPort)（\(sent) 字节）"
                 }
             }
+            self.lock.lock()
+            if self.fd == s { self.fd = -1 }
+            self.running = false
+            self.lock.unlock()
             close(s)
         }
     }
@@ -366,17 +437,33 @@ final class LanUdpDiscovery {
     var gameFilter: String?
 
     private let queue = DispatchQueue(label: "qingyi.lan.udpdiscovery")
+    /// 只保护 fd / running 的短赋值。`start()` 的收包循环独占 `queue`，
+    /// 因此 `stop()` 绝不能把自己的停止动作排进 `queue`（那会永远轮不到执行）。
+    private let lock = NSLock()
     private var fd: Int32 = -1
     private var running = false
+    /// 每次 stop 自增：start 在 bind 期间如果被 stop，就不能再进入收包循环
+    private var stopEpoch = 0
     private var rooms: [String: LanRoom] = [:]
     private var lastQuery: Int64 = 0
     private var lastPublish: Int64 = 0
 
     private static let expireMs: Int64 = 8_000
 
+    private var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
+
     func start() {
         queue.async { [weak self] in
-            guard let self, !self.running else { return }
+            guard let self else { return }
+            self.lock.lock()
+            let alreadyRunning = self.running
+            let epoch = self.stopEpoch
+            self.lock.unlock()
+            if alreadyRunning { return }
             let s = socket(AF_INET, SOCK_DGRAM, 0)
             guard s >= 0 else {
                 let e = errno
@@ -423,15 +510,24 @@ final class LanUdpDiscovery {
             _ = withUnsafeMutablePointer(to: &actual) { p in
                 p.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(s, $0, &alen) }
             }
-            self.fd = s
-            self.running = true
+            self.lock.lock()
+            let cancelled = (epoch != self.stopEpoch)
+            if !cancelled {
+                self.fd = s
+                self.running = true
+            }
+            self.lock.unlock()
+            if cancelled {
+                close(s)
+                return
+            }
             NSLog("[LanUDP] 已启动，本机 UDP 端口 %d，广播地址 %@",
                   Int(UInt16(bigEndian: actual.sin_port)),
                   LanProto.broadcastAddresses().joined(separator: ","))
 
             var buffer = [UInt8](repeating: 0, count: 2048)
             while true {
-                if !self.running { break }
+                if !self.isRunning { break }
                 let now = LanProto.uptimeMs()
                 if now - self.lastQuery >= 1_500 {
                     self.lastQuery = now
@@ -465,17 +561,28 @@ final class LanUdpDiscovery {
                 }
                 self.sweep()
             }
+            self.lock.lock()
+            if self.fd == s { self.fd = -1 }
+            self.running = false
+            self.lock.unlock()
             close(s)
-            self.fd = -1
         }
     }
 
+    /// 必须能在任意线程立即生效：`start()` 的循环独占 `queue`，
+    /// 若这里改成 `queue.async`，停止块会排在循环后面永远执行不到，
+    /// 41235 会被发现循环永久占住（房主随后 bind 失败，1.1.6(15) 就是在这里卡死的）。
     func stop() {
+        lock.lock()
+        stopEpoch += 1
+        running = false
+        let s = fd
+        fd = -1
+        lock.unlock()
+        if s >= 0 { shutdown(s, SHUT_RDWR) }
+        // 清空房间列表要等循环退出后再做，用 queue.async 正好排到它后面
         queue.async { [weak self] in
             guard let self else { return }
-            self.running = false
-            let s = self.fd
-            if s >= 0 { shutdown(s, SHUT_RDWR) }
             self.rooms.removeAll()
             DispatchQueue.main.async { self.onRooms?([]) }
         }

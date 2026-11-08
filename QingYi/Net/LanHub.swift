@@ -858,6 +858,7 @@ final class LanHub: ObservableObject {
         // 旧监听器的 socket 释放是异步的；先等它彻底停掉再绑端口，
         // 否则新房间会被迫顺延到 41235、41236……（曾一路漂到 41244）。
         let previousHost = host
+        LanStage.mark("host.begin", "game=\(game) color=\(color) prevHost=\(previousHost != nil)")
         stop()
         role = .host
         gameId = game == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
@@ -898,6 +899,7 @@ final class LanHub: ObservableObject {
                 self.port = port
                 self.hostAddress = addr.isEmpty ? "\(port)" : "\(addr):\(port)"
                 self.state = .hosting
+                LanStage.finish("host.ready", "\(addr):\(port)")
                 self.queryResponder?.update(port: port, addr: addr,
                                             size: newSession.size == 9 ? "9" : "\(newSession.size)",
                                             displayName: "QY-\(self.roomCode)-\(newSession.size)")
@@ -913,6 +915,8 @@ final class LanHub: ObservableObject {
                 self.notice = message
                 self.hostAddress = ""
                 self.port = 0
+                // 错误是用户已经能看见的结果态，不算「没走完」，否则下次启动会误报
+                LanStage.finish("host.error", message)
                 if self.state == .hosting { self.state = .error }
             }
         }
@@ -923,6 +927,7 @@ final class LanHub: ObservableObject {
             Task { @MainActor in self?.onGuestChanged(connected) }
         }
         if let previousHost {
+            LanStage.mark("host.stop.previous")
             previousHost.stop { [weak self, weak newHost] in
                 Task { @MainActor in
                     guard let self, let newHost, self.host === newHost else { return }

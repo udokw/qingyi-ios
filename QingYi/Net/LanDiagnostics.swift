@@ -28,7 +28,9 @@ final class LanDiagnostics: ObservableObject {
         /// 跨端字段自检结果（每行一条中文结论）
         var selfCheck = "未运行"
         var fieldTable = LanUdpTypes.fieldTable
-        var broadcast = LanProto.broadcastAddresses().joined(separator: " , ")
+        /// 广播目标由通告循环在后台线程算好后回填，
+        /// 这里绝不能在 init/reset 时调 getifaddrs（那会落在主线程上）。
+        var broadcast = "—"
     }
 
     static let shared = LanDiagnostics()

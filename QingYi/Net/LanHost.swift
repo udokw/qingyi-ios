@@ -63,6 +63,7 @@ final class LanHost {
             $0.txt = "—"
         }
         queue.async {
+            LanStage.mark("host.tcp.listen")
             self.addr = LanProto.localIPv4Address()
             LanDiagnostics.shared.update { $0.hostIP = self.addr }
             LanLog.shared.add("建房", ok: nil,
@@ -79,6 +80,14 @@ final class LanHost {
             self.lastErrors.removeAll()
             self.stopped = false
             self.tryListen()
+            // 兜底超时：NWListener 若一直停在 setup/preparing（既不 ready 也不 failed），
+            // 不能无限等，4s 后直接落到可显示的错误态。
+            self.queue.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+                guard let self, !self.stopped, self.listener != nil, self.port == 0 else { return }
+                LanStage.mark("host.listen.timeout", "4s 内未 ready")
+                LanLog.shared.add("TCP 监听超时", ok: false, "4s 内未进入 ready")
+                self.failAll()
+            }
         }
     }
 
@@ -295,8 +304,26 @@ final class LanHost {
                 service.setTXTRecord(txt)
                 service.delegate = self.serviceDelegate
                 service.schedule(in: .main, forMode: .common)
+                LanStage.mark("host.mdns.schedule", type)
                 service.publish()
                 self.netServices.append(service)
+            }
+            // 发布超时：3s 内没收到 didPublish 就把状态改成超时，不能一直显示 publishing…
+            // `snapshot` 是 @Published，只能在主线程读，不能在 host 队列上直接读。
+            let publishedTypes = types
+            self.queue.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                guard let self, !self.stopped else { return }
+                DispatchQueue.main.async {
+                    let pending = LanDiagnostics.shared.snapshot.mdns.filter {
+                        publishedTypes.contains($0.key) && $0.value.hasPrefix("publishing")
+                    }
+                    guard !pending.isEmpty else { return }
+                    LanDiagnostics.shared.update { snap in
+                        for (type, _) in pending { snap.mdns[type] = "timeout（3s 无 didPublish 回调）" }
+                    }
+                    LanLog.shared.add("mDNS 发布超时", ok: false, "未发布：\(pending.keys.joined(separator: ","))")
+                    LanStage.mark("host.mdns.timeout", pending.keys.joined(separator: ","))
+                }
             }
         }
     }

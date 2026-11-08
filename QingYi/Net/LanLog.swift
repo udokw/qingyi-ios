@@ -25,6 +25,10 @@ final class LanLog: ObservableObject {
     private var storage: [String] = []
     private var seq = 0
     private var writtenSinceTrim = 0
+    private var publishScheduled = false
+    private var publishPending = false
+    private let textLock = NSLock()
+    private var cachedText = ""
     private let formatter: DateFormatter
     let fileURL: URL
 
@@ -33,46 +37,64 @@ final class LanLog: ObservableObject {
         formatter.dateFormat = "HH:mm:ss.SSS"
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         fileURL = dir.appendingPathComponent("lan.log")
-        // 启动时把旧日志带回来，避免重开 App 后页面空白
-        if let old = try? String(contentsOf: fileURL, encoding: .utf8) {
-            storage = old.split(separator: "\n", omittingEmptySubsequences: true)
-                .suffix(capacity)
-                .map(String.init)
+        // 旧日志的读取也放在日志队列：主线程上不碰文件（哪怕只有几百行）。
+        queue.async { [weak self] in
+            guard let self else { return }
+            if let old = try? String(contentsOf: self.fileURL, encoding: .utf8) {
+                self.storage = old.split(separator: "\n", omittingEmptySubsequences: true)
+                    .suffix(self.capacity)
+                    .map(String.init)
+            }
+            self.rebuildCache()
+            self.publish()
         }
-        publish()
     }
 
     /// ok 传 nil 表示中性事件（既不是成功也不是失败）。
+    /// 调用方可以是任意线程：格式化、落盘、内存更新全在日志自己的串行队列上。
     func add(_ kind: String, ok: Bool? = nil, _ detail: String = "") {
-        let stamp = formatter.string(from: Date())
-        let flag = ok == nil ? "  · " : (ok! ? " ok " : "fail")
-        let line = detail.isEmpty
-            ? "\(stamp)  [\(flag)]  \(kind)"
-            : "\(stamp)  [\(flag)]  \(kind)  \(detail)"
+        let at = Date()
         queue.async { [weak self] in
             guard let self else { return }
+            let stamp = self.formatter.string(from: at)
+            let flag = ok == nil ? "  · " : (ok! ? " ok " : "fail")
+            let line = detail.isEmpty
+                ? "\(stamp)  [\(flag)]  \(kind)"
+                : "\(stamp)  [\(flag)]  \(kind)  \(detail)"
             self.storage.append(line)
             if self.storage.count > self.capacity {
                 self.storage.removeFirst(self.storage.count - self.capacity)
             }
+            self.rebuildCache()
             self.appendLineToFile(line)
             self.publish()
         }
     }
 
-    /// 全部日志（按时间正序），用于「复制全部」
+    /// 全部日志（按时间正序），用于「复制全部」。
+    /// 走缓存 + NSLock，绝不在主线程 `queue.sync`，避免卡住 UI。
     func fullText() -> String {
-        queue.sync { storage.joined(separator: "\n") }
+        textLock.lock()
+        defer { textLock.unlock() }
+        return cachedText
     }
 
     func clear() {
         queue.async { [weak self] in
             guard let self else { return }
             self.storage.removeAll()
+            self.rebuildCache()
             try? FileManager.default.removeItem(at: self.fileURL)
             self.writtenSinceTrim = 0
             self.publish()
         }
+    }
+
+    private func rebuildCache() {
+        let text = storage.joined(separator: "\n")
+        textLock.lock()
+        cachedText = text
+        textLock.unlock()
     }
 
     // MARK: - 落盘
@@ -98,9 +120,26 @@ final class LanLog: ObservableObject {
     // MARK: - 发布到界面
 
     private func publish() {
+        // 只在日志队列上调用。合并刷新：正在排队时不再重复派发，
+        // 避免广播/收包密集时把主队列灌满（那也会让界面看起来卡死）。
+        guard !publishScheduled else {
+            publishPending = true
+            return
+        }
+        publishScheduled = true
+        publishPending = false
         let snapshot = storage.enumerated().map { Entry(id: $0.offset, line: $0.element) }
         DispatchQueue.main.async { [weak self] in
-            self?.entries = snapshot
+            guard let self else { return }
+            self.entries = snapshot
+            self.queue.async {
+                self.publishScheduled = false
+                // 派发期间又来了新日志：补一次，保证最后一条一定显示出来
+                if self.publishPending {
+                    self.publishPending = false
+                    self.publish()
+                }
+            }
         }
     }
 }

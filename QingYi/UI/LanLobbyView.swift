@@ -25,6 +25,7 @@ struct LanLobbyView: View {
     @State private var selfTestBusy = false
     @State private var selfTestReport = ""
     @State private var showDiagnostics = false
+    @State private var dismissedStageBanner = false
     @ObservedObject private var diag = LanDiagnostics.shared
     @ObservedObject private var lanLog = LanLog.shared
     @State private var copiedHint = ""
@@ -42,6 +43,26 @@ struct LanLobbyView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
                         header
+                        if let stage = LanStage.previousUnfinished, !dismissedStageBanner {
+                            // 上次建房卡死/被强杀时留下的现场：一句话就能定位停在哪一步
+                            HStack(alignment: .top, spacing: 8) {
+                                Text("上次建房停在 \(stage)（\(LanStage.previousBuildTag ?? LanStage.buildTag)）")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(theme.title)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                                Button("知道了") { dismissedStageBanner = true }
+                                    .font(.system(size: 12))
+                                    .foregroundColor(theme.foot)
+                                    .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(theme.divider, lineWidth: 0.7)
+                            )
+                        }
                         if hub.state == .idle {
                             segmentedTabs
                             if tab == 0 {
@@ -490,7 +511,9 @@ struct LanLobbyView: View {
                 .buttonStyle(.plain)
             }
             ScrollView(showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 2) {
+                // LazyVStack：500 条日志不必每次更新都把每一行都排版一遍
+                // （`.textSelection` 的 Text 很贵，全量排版会拖住主线程）
+                LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(lanLog.entries.reversed()) { entry in
                         Text(entry.line)
                             .font(.system(size: 9, design: .monospaced))
