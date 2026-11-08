@@ -27,6 +27,11 @@ final class LanHost {
     private var remainingTries = 0
     private var nextPort: UInt16 = LanProto.defaultPort
     private var stopped = false
+    /// 同一个端口最多重试几次。房主「取消房间 → 重新建房」时，上一个监听器的
+    /// socket 释放是异步的，立刻重新 bind 会 EADDRINUSE；不重试就会一路顺延端口，
+    /// 最终和 Android 的 41234 对不上（曾出现 iOS 落在 41244）。
+    private var samePortRetries = 0
+    private var retryWork: DispatchWorkItem?
 
     var serviceName: String { "QY-\(roomCode)-\(size)" }
 
@@ -47,6 +52,7 @@ final class LanHost {
             self.remainingTries = max(1, tries)
             self.nextPort = preferredPort
             self.stopped = false
+            self.samePortRetries = LanProto.samePortRetries
             self.tryListen()
         }
     }
@@ -54,7 +60,8 @@ final class LanHost {
     private func tryListen() {
         guard !stopped else { return }
         guard remainingTries > 0 else {
-            onError?("端口 \(LanProto.defaultPort) 起连续 \(LanProto.portTries) 个端口都被占用")
+            stopped = true
+            onError?("端口 \(LanProto.defaultPort) 起连续 \(LanProto.portTries) 个端口都被占用，无法建房")
             return
         }
         remainingTries -= 1
@@ -68,7 +75,7 @@ final class LanHost {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         guard let l = try? NWListener(using: params, on: nwPort) else {
-            tryListen()
+            scheduleRetrySamePort()
             return
         }
         l.service = NWListener.Service(name: serviceName,
@@ -78,8 +85,10 @@ final class LanHost {
         l.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
-        l.stateUpdateHandler = { [weak self] state in
-            guard let self, !self.stopped else { return }
+        // 只捕获 weak：监听器由 `listener` 持有；强捕获会形成 retain cycle，
+        // 让已经失败的监听器一直活到进程结束，端口也无法回收。
+        l.stateUpdateHandler = { [weak self, weak l] state in
+            guard let self, let l, !self.stopped, self.listener === l else { return }
             switch state {
             case .ready:
                 self.port = l.port?.rawValue ?? candidate
@@ -88,13 +97,36 @@ final class LanHost {
             case .failed:
                 l.cancel()
                 self.listener = nil
-                self.tryListen()
+                self.scheduleRetrySamePort()
             default:
                 break
             }
         }
         listener = l
         l.start(queue: queue)
+    }
+
+    /// 同一个端口先重试几次（间隔 250ms），仍然失败才顺延到下一个端口。
+    /// 这样「取消再建房」不会把端口一路推到 41244。
+    private func scheduleRetrySamePort() {
+        guard !stopped else { return }
+        if samePortRetries > 0 {
+            samePortRetries -= 1
+            let target = nextPort > LanProto.defaultPort ? nextPort - 1 : LanProto.defaultPort
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, !self.stopped else { return }
+                self.nextPort = target
+                // 这次重试不消耗 remainingTries，等真正顺延时才算一次
+                self.remainingTries += 1
+                self.tryListen()
+            }
+            retryWork?.cancel()
+            retryWork = item
+            queue.asyncAfter(deadline: .now() + 0.25, execute: item)
+            return
+        }
+        samePortRetries = LanProto.samePortRetries
+        tryListen()
     }
 
     // MARK: - Bonjour
@@ -211,10 +243,15 @@ final class LanHost {
         }
     }
 
-    func stop() {
+    func stop(completion: (() -> Void)? = nil) {
         queue.async { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                if let completion { DispatchQueue.main.async { completion() } }
+                return
+            }
             self.stopped = true
+            self.retryWork?.cancel()
+            self.retryWork = nil
             self.pending.removeAll()
             self.guest?.close("房主已关闭房间")
             self.guest = nil
@@ -225,6 +262,7 @@ final class LanHost {
             self.netServices.removeAll()
             DispatchQueue.main.async {
                 for service in services { service.stop() }
+                completion?()
             }
         }
     }

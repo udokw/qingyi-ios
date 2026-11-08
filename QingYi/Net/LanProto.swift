@@ -18,6 +18,13 @@ enum LanProto {
 
     static let defaultPort: UInt16 = 41234
     static let portTries = 11
+    /// 同一端口 bind 失败时先原地重试的次数（等待上一个监听器的 socket 真正释放）。
+    static let samePortRetries = 3
+
+    /// 手动加入时依次尝试的端口：与建房的候选端口集合完全一致。
+    static var portCandidates: [UInt16] {
+        (0..<portTries).map { UInt16(Int(defaultPort) + $0) }
+    }
     static let maxFrame = 65536
 
     /// 断线宽限：宽限期内时钟暂停，到点判负。

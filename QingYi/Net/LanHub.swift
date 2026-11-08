@@ -713,7 +713,7 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.2"
+    private let appVersion = "1.0.3"
 
     private init() {}
 
@@ -782,6 +782,9 @@ final class LanHub: ObservableObject {
 
     func hostRoom(game: String, name: String, color: Int,
                   mainSec: Int, byoYomiSec: Int, periods: Int) {
+        // 旧监听器的 socket 释放是异步的；先等它彻底停掉再绑端口，
+        // 否则新房间会被迫顺延到 41235、41236……（曾一路漂到 41244）。
+        let previousHost = host
         stop()
         role = .host
         gameId = game == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
@@ -809,11 +812,16 @@ final class LanHub: ObservableObject {
                 self.updateProbePayload()
             }
         }
-        newHost.onError = { [weak self] message in
+        newHost.onError = { [weak self, weak newHost] message in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, let newHost, self.host === newHost else { return }
+                // 一个端口都没绑上：状态必须落到 error，并把地址清空，
+                // 避免界面继续展示一个实际没有监听的 “IP:端口”。
                 self.lastError = message
                 self.notice = message
+                self.hostAddress = ""
+                self.port = 0
+                if self.state == .hosting { self.state = .error }
             }
         }
         newHost.onMessage = { [weak self] msg in
@@ -822,7 +830,16 @@ final class LanHub: ObservableObject {
         newHost.onGuestChanged = { [weak self] connected in
             Task { @MainActor in self?.onGuestChanged(connected) }
         }
-        newHost.start()
+        if let previousHost {
+            previousHost.stop { [weak self, weak newHost] in
+                Task { @MainActor in
+                    guard let self, let newHost, self.host === newHost else { return }
+                    newHost.start()
+                }
+            }
+        } else {
+            newHost.start()
+        }
         state = .hosting
         boardVersion += 1
         updateProbePayload()
@@ -871,8 +888,14 @@ final class LanHub: ObservableObject {
 
     private func connectLoop(_ candidates: [String]) async {
         var lastReason = "没有可用的房主地址"
+        // 手动加入可能要在 41234–41244 之间扫描，给一个总时限避免干等很久
+        let deadline = Date().addingTimeInterval(20)
         for candidate in candidates {
             if state != .connecting { return }
+            if Date() > deadline {
+                lastReason = "连接超时，已尝试部分地址/端口"
+                break
+            }
             guard let (ip, port) = Self.splitHostPort(candidate) else {
                 lastReason = "地址格式错误：\(candidate)"
                 continue
@@ -1871,6 +1894,63 @@ final class LanHub: ObservableObject {
     }
 
     // MARK: - 工具
+
+    /// 手动加入的候选地址。
+    /// - 用户写了端口：先试该地址，再补一条发现列表里同 IP / 同房号的真实端口；
+    /// - 用户只写 IP：优先用发现列表里该 IP 的真实端口，然后按 41234–41244 逐个尝试。
+    /// 这样即使房主不在默认端口上，也不需要用户手填端口。
+    func manualCandidates(_ text: String, code: String) -> [String] {
+        let value = text.trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return [] }
+        let normalizedCode = code.trimmingCharacters(in: .whitespaces).uppercased()
+        let matched = rooms.first { room in
+            (!normalizedCode.isEmpty && room.code.caseInsensitiveCompare(normalizedCode) == .orderedSame)
+                || room.host == Self.hostOnly(value)
+        }
+        if let explicit = Self.explicitPort(value), let (ip, _) = Self.splitHostPort(value) {
+            var list = ["\(ip):\(explicit)"]
+            if let matched, matched.port != explicit {
+                list.append("\(matched.host):\(matched.port)")
+            }
+            return list
+        }
+        let ip = Self.hostOnly(value)
+        guard !ip.isEmpty else { return [] }
+        var list: [String] = []
+        if let matched { list.append("\(matched.host):\(matched.port)") }
+        for port in LanProto.portCandidates where !list.contains("\(ip):\(port)") {
+            list.append("\(ip):\(port)")
+        }
+        return list
+    }
+
+    /// 文本里显式写出的端口；没写端口（含裸 IPv6）返回 nil。
+    static func explicitPort(_ text: String) -> UInt16? {
+        let value = text.trimmingCharacters(in: .whitespaces)
+        if value.hasPrefix("[") {
+            guard let end = value.firstIndex(of: "]") else { return nil }
+            let rest = String(value[value.index(after: end)...])
+            guard rest.hasPrefix(":") else { return nil }
+            return UInt16(rest.dropFirst())
+        }
+        guard value.filter({ $0 == ":" }).count == 1 else { return nil }
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        return UInt16(String(parts[1]).trimmingCharacters(in: .whitespaces))
+    }
+
+    /// 去掉端口后的主机部分；裸 IPv6 原样返回。
+    static func hostOnly(_ text: String) -> String {
+        let value = text.trimmingCharacters(in: .whitespaces)
+        if value.hasPrefix("["), let end = value.firstIndex(of: "]") {
+            return String(value[value.index(after: value.startIndex)..<end])
+        }
+        if value.filter({ $0 == ":" }).count == 1 {
+            let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+            if parts.count == 2 { return String(parts[0]).trimmingCharacters(in: .whitespaces) }
+        }
+        return value
+    }
 
     /// 解析 host:port / [v6]:port / 裸 IPv6（默认端口）。
     static func splitHostPort(_ text: String) -> (String, UInt16)? {

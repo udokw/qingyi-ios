@@ -168,10 +168,16 @@ struct LanLobbyView: View {
             }
 
             if hub.rooms.isEmpty {
-                Text("正在搜索同一网络内的房间…")
-                    .font(.system(size: 13))
-                    .foregroundColor(theme.sub)
-                    .padding(.vertical, 6)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("正在搜索同一网络内的房间…")
+                        .font(.system(size: 13))
+                        .foregroundColor(theme.sub)
+                    Text("搜不到时：① 确认两台设备连同一个 Wi-Fi；② 关闭手机上的 VPN / 代理（会挡住 mDNS 组播）；③ 让房主把房间卡片上的「房号 + 地址」发给你，在上面手动填写——地址只填 IP 也能加入，会自动尝试 41234–41244。")
+                        .font(.system(size: 11))
+                        .foregroundColor(theme.foot)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 6)
             } else {
                 VStack(spacing: 0) {
                     ForEach(hub.rooms) { room in
@@ -215,20 +221,18 @@ struct LanLobbyView: View {
 
     private func joinByInput() {
         let code = joinCode.trimmingCharacters(in: .whitespaces).uppercased()
-        var candidates: [String] = []
-        if !manual.trimmingCharacters(in: .whitespaces).isEmpty {
-            guard let (ip, port) = LanHub.splitHostPort(manual) else {
-                localError = "地址格式不对，示例：192.168.1.5:41234"
-                return
-            }
-            candidates.append("\(ip):\(port)")
+        guard !code.isEmpty else {
+            localError = "请输入四位房间码"
+            return
         }
+        // 手动地址只填 IP 也可以：优先用发现到的真实端口，再按 41234–41244 兜底。
+        var candidates = hub.manualCandidates(manual, code: code)
         if let room = hub.rooms.first(where: { $0.code.caseInsensitiveCompare(code) == .orderedSame }) {
             let address = "\(room.host):\(room.port)"
-            if !candidates.contains(address) { candidates.append(address) }
+            if !candidates.contains(address) { candidates.insert(address, at: 0) }
         }
         guard !candidates.isEmpty else {
-            localError = code.isEmpty ? "请输入房号，或填写房主地址" : "没有找到房号 \(code)，可让房主提供地址"
+            localError = "请填写房主地址（只填 IP 也可以），或让房主把「地址」发给你"
             return
         }
         localError = ""

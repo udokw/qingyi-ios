@@ -9,6 +9,8 @@ struct XiangqiBoardView: View {
     var theme: Theme
     var onTap: (Int, Int) -> Void
     var onDrag: (Int, Int, Int, Int) -> Void
+    /// 客机执黑时整块棋盘被父视图旋转 180°，文字需要再转回来才是正的。
+    var flipped: Bool = false
 
     private let cols = XiangqiGame.cols
     private let rows = XiangqiGame.rows
@@ -146,14 +148,16 @@ struct XiangqiBoardView: View {
         // 楚河汉界
         let riverY = top + CGFloat(4.5) * m.cell
         let riverFont = Font.qySerif(m.cell * 0.62)
-        context.draw(Text("楚 河")
+        drawUpright(&context,
+                    Text("楚 河")
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
-                     at: CGPoint(x: left + width * 0.28, y: riverY), anchor: .center)
-        context.draw(Text("汉 界")
+                    at: CGPoint(x: left + width * 0.28, y: riverY))
+        drawUpright(&context,
+                    Text("汉 界")
                         .font(riverFont)
                         .foregroundColor(theme.boardLine.opacity(0.85)),
-                     at: CGPoint(x: left + width * 0.72, y: riverY), anchor: .center)
+                    at: CGPoint(x: left + width * 0.72, y: riverY))
 
         // 棋盘外框
         context.stroke(Path(CGRect(origin: .zero, size: CGSize(width: left * 2 + width,
@@ -197,10 +201,26 @@ struct XiangqiBoardView: View {
         context.stroke(Path(ellipseIn: rect.insetBy(dx: 4, dy: 4)),
                        with: .color(side.opacity(0.28)), lineWidth: 0.7)
 
-        context.draw(Text(XiangqiGame.pieceName(piece))
+        drawUpright(&context,
+                    Text(XiangqiGame.pieceName(piece))
                         .font(.qySerif(m.cell * 0.62, weight: .bold))
                         .foregroundColor(side),
-                     at: c, anchor: .center)
+                    at: c)
+    }
+
+    /// 绘制文字。`flipped` 时绕字心再转 180°，抵消父视图对整块棋盘的翻转，
+    /// 保证棋子文字与「楚河/汉界」始终正向可读。
+    private func drawUpright(_ context: inout GraphicsContext, _ text: Text, at point: CGPoint) {
+        guard flipped else {
+            context.draw(text, at: point, anchor: .center)
+            return
+        }
+        context.drawLayer { layer in
+            layer.translateBy(x: point.x, y: point.y)
+            layer.rotate(by: .degrees(180))
+            layer.translateBy(x: -point.x, y: -point.y)
+            layer.draw(text, at: point, anchor: .center)
+        }
     }
 
     private func ring(_ context: inout GraphicsContext, point: GoPoint, metrics m: Metrics,

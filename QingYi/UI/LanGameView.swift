@@ -134,7 +134,8 @@ struct LanGameView: View {
                                  lastMove: hub.lastMoveXiangqi,
                                  theme: theme,
                                  onTap: { x, y in tapXiangqi(x, y) },
-                                 onDrag: { fx, fy, tx, ty in dragXiangqi(fx, fy, tx, ty) })
+                                 onDrag: { fx, fy, tx, ty in dragXiangqi(fx, fy, tx, ty) },
+                                 flipped: flipped)
             }
         }
         .rotationEffect(.degrees(flipped ? 180 : 0))
