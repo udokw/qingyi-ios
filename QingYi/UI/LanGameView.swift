@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 联机对局页：复用本地棋盘视图，客机执后手时整体旋转 180°。
+/// 联机对局页：棋盘尺寸、页面占比与底部按钮统一比照单机对局页
+/// （GoGameView / XiangqiGameView），不再另起一套视觉。
 struct LanGameView: View {
     @EnvironmentObject private var app: AppState
     @Environment(\.dismiss) private var dismiss
@@ -19,31 +20,50 @@ struct LanGameView: View {
         var id: Int { rawValue }
     }
 
+    /// 底部动作项：与单机页同一套按钮语义（normal / primary / danger）
+    private struct ActionItem {
+        let title: String
+        let en: String
+        let kind: ActionKind
+        let run: () -> Void
+    }
+
+    private struct ActionRow: Identifiable {
+        let id: Int
+        let items: [ActionItem]
+    }
+
     var body: some View {
         ZStack {
             PaperBackground(theme: theme)
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 14) {
-                    topBar
-                    if hub.linkDown && hub.state == .playing { linkBanner }
-                    boardArea
-                    clockRow
-                    moveLine
-                    if !hub.notice.isEmpty {
-                        Text(hub.notice)
-                            .font(.system(size: 12))
-                            .foregroundColor(theme.sub)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .multilineTextAlignment(.center)
-                    }
-                    controls
-                    Spacer(minLength: 20)
+            VStack(spacing: 0) {
+                topBar
+
+                if hub.linkDown && hub.state == .playing {
+                    linkBanner.padding(.top, 6)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
+
+                Spacer(minLength: 8)
+
+                boardArea
+                    .padding(.top, 10)
+
+                infoBlock
+                    .padding(.top, 10)
+
+                controls
+                    .padding(.top, theme.isHara ? 22 : 40)
+
+                if theme.isHara {
+                    signature.padding(.top, 20)
+                }
+
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+            .padding(.bottom, 14)
 
             if hub.state == .finished {
                 resultOverlay
@@ -203,7 +223,21 @@ struct LanGameView: View {
         clearSelection()
     }
 
-    // MARK: - 时钟 / 上一手
+    // MARK: - 时钟 / 上一手 / 提示
+
+    private var infoBlock: some View {
+        VStack(spacing: 6) {
+            clockRow
+            moveLine
+            if !hub.notice.isEmpty {
+                Text(hub.notice)
+                    .font(.system(size: 12))
+                    .foregroundColor(theme.sub)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
 
     private var clockRow: some View {
         HStack(spacing: 12) {
@@ -214,22 +248,22 @@ struct LanGameView: View {
 
     private func clockPill(seat: Int, mine: Bool) -> some View {
         let active = hub.turn == seat && hub.state == .playing
-        return VStack(spacing: 2) {
+        return VStack(spacing: 1) {
             Text(mine ? "我方" : "对手")
-                .font(.system(size: 11))
+                .font(.system(size: 10))
                 .foregroundColor(theme.foot)
             Text(hub.clockLabel(seat: seat))
-                .font(.system(size: 15, weight: active ? .semibold : .regular, design: .monospaced))
+                .font(.system(size: 13, weight: active ? .semibold : .regular, design: .monospaced))
                 .foregroundColor(active ? theme.accent : theme.title)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 7)
+        .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 12)
+            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 10)
                 .fill(theme.isHara ? Color.clear : theme.btnBg)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 12)
+            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 10)
                 .stroke(active ? theme.accent.opacity(0.7) : (theme.isHara ? theme.divider : Color.clear),
                         lineWidth: 0.8)
         )
@@ -244,6 +278,8 @@ struct LanGameView: View {
                 Text(hub.lastMoveText)
                     .font(.system(size: 13))
                     .foregroundColor(theme.sub)
+                    .lineLimit(1)
+                    .truncationMode(.head)
             }
             Spacer(minLength: 0)
             Text(hub.state == .playing ? (hub.isMyTurn ? "轮到你走" : "等待对手") : "")
@@ -252,49 +288,121 @@ struct LanGameView: View {
         }
     }
 
-    // MARK: - 操作
+    // MARK: - 操作（与单机页同一套按钮 / 栅格）
 
+    private var actionItems: [ActionItem] {
+        var items: [ActionItem] = []
+        items.append(ActionItem(title: "悔棋", en: "UNDO", kind: .normal) { hub.requestUndo() })
+        if game == .go {
+            items.append(ActionItem(title: "停一手", en: "PASS", kind: .normal) { _ = hub.requestPass() })
+        }
+        items.append(ActionItem(title: "认输", en: "RESIGN", kind: .danger) { prompt = .resign })
+        if game == .go && hub.isHost {
+            if hub.scorePending {
+                items.append(ActionItem(title: "确认数子", en: "CONFIRM", kind: .primary) { hub.confirmScore() })
+            } else {
+                items.append(ActionItem(title: "数子", en: "COUNT", kind: .normal) { hub.requestScore() })
+            }
+        }
+        items.append(ActionItem(title: "离开", en: "LEAVE", kind: .normal) { prompt = .leave })
+        return items
+    }
+
+    private var actionRows: [ActionRow] {
+        let items = actionItems
+        var rows: [ActionRow] = []
+        var index = 0
+        while index < items.count {
+            let end = min(index + 3, items.count)
+            rows.append(ActionRow(id: rows.count, items: Array(items[index..<end])))
+            index = end
+        }
+        return rows
+    }
+
+    @ViewBuilder
     private var controls: some View {
-        VStack(spacing: 10) {
-            if game == .go && hub.scorePending {
-                VStack(spacing: 8) {
-                    Text(hub.isHost
-                         ? "双方各停一手，请确认数子结果"
-                         : "双方各停一手，等待房主确认数子")
-                        .font(.system(size: 12))
-                        .foregroundColor(theme.sub)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                    if hub.isHost {
-                        ThemedActionButton(title: "确认数子", theme: theme) {
-                            hub.confirmScore()
+        if theme.isHara {
+            VStack(spacing: 0) {
+                Hairline(color: theme.divider)
+                ForEach(actionRows) { row in
+                    HStack(spacing: 0) {
+                        ForEach(row.items.indices, id: \.self) { i in
+                            Group {
+                                if i > 0 { verticalDivider }
+                                gridButton(row.items[i])
+                            }
+                        }
+                    }
+                    .frame(height: 56)
+                    Hairline(color: theme.divider)
+                }
+            }
+        } else {
+            VStack(spacing: 12) {
+                ForEach(actionRows) { row in
+                    HStack(spacing: 12) {
+                        ForEach(row.items.indices, id: \.self) { i in
+                            pill(row.items[i])
                         }
                     }
                 }
             }
-            HStack(spacing: 10) {
-                if game == .go {
-                    ThemedActionButton(title: "停一手", theme: theme) {
-                        _ = hub.requestPass()
-                    }
-                }
-                ThemedActionButton(title: "悔棋", theme: theme) {
-                    hub.requestUndo()
-                }
-                ThemedActionButton(title: "认输", kind: .danger, theme: theme) {
-                    prompt = .resign
-                }
-            }
-            HStack(spacing: 10) {
-                if game == .go, hub.isHost, !hub.scorePending {
-                    ThemedActionButton(title: "数子", theme: theme) {
-                        hub.requestScore()
-                    }
-                }
-                ThemedActionButton(title: "离开", kind: .danger, theme: theme) {
-                    prompt = .leave
-                }
-            }
+            .padding(.horizontal, 6)
         }
+    }
+
+    private var verticalDivider: some View {
+        Rectangle()
+            .fill(theme.divider)
+            .frame(width: 0.6)
+    }
+
+    private func gridButton(_ item: ActionItem) -> some View {
+        Button(action: item.run) {
+            VStack(spacing: 3) {
+                Text(item.title)
+                    .font(.system(size: 15))
+                    .foregroundColor(item.kind == .danger ? theme.dangerText
+                                     : (item.kind == .primary ? theme.primaryText : theme.title))
+                Text(item.en)
+                    .font(.system(size: 9))
+                    .tracking(1)
+                    .foregroundColor(item.kind == .primary ? theme.primaryText.opacity(0.7) : theme.sub)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(item.kind == .primary ? theme.primaryBg : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func pill(_ item: ActionItem) -> some View {
+        Button(action: item.run) {
+            Text(item.title)
+                .font(.system(size: 14, weight: .medium, design: .serif))
+                .foregroundColor(item.kind == .primary ? theme.primaryText
+                                 : (item.kind == .danger ? theme.dangerText : theme.btnText))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: theme.btnRadius)
+                        .fill(item.kind == .primary ? theme.primaryBg
+                              : (item.kind == .danger ? theme.entryBg[0] : theme.btnBg))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 底部签字
+
+    private var signature: some View {
+        Text(game == .go ? "清 弈 引 擎 · 围 棋" : "清 弈 引 擎 · 象 棋")
+            .font(.system(size: 11))
+            .tracking(2.75)
+            .foregroundColor(theme.foot)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // MARK: - 结果
