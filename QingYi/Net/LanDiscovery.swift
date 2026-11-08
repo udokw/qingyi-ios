@@ -18,6 +18,8 @@ struct LanRoom: Identifiable {
     var lastOkAt: Int64
     var verified: Bool
     var probing: Bool
+    /// 由 UDP 广播通告/应答发现的房间：只按 UDP 刷新过期，不因 TCP 探活失败被删
+    var fromUdp: Bool = false
 
     var id: String { iid.isEmpty ? name : iid }
 
@@ -42,15 +44,27 @@ final class LanDiscovery {
         queue.async { [weak self] in
             guard let self, !self.running else { return }
             self.running = true
+            NSLog("[mDNS] 开始浏览 %@", LanProto.allServiceTypesNW.joined(separator: ","))
             for type in LanProto.allServiceTypesNW {
                 let params = NWParameters.tcp
                 let browser = NWBrowser(for: .bonjour(type: type, domain: nil), using: params)
                 browser.stateUpdateHandler = { [weak self] state in
-                    if case .failed(let error) = state {
+                    switch state {
+                    case .ready:
+                        NSLog("[mDNS] %@ 浏览就绪", type)
+                    case .failed(let error):
+                        NSLog("[mDNS] %@ 浏览失败：%@", type, error.localizedDescription)
                         self?.onError?("搜索失败：\(error.localizedDescription)，请使用手动 IP")
+                    case .waiting(let error):
+                        NSLog("[mDNS] %@ 等待中：%@", type, error.localizedDescription)
+                    case .cancelled:
+                        NSLog("[mDNS] %@ 已取消", type)
+                    default:
+                        break
                     }
                 }
                 browser.browseResultsChangedHandler = { [weak self] results, _ in
+                    NSLog("[mDNS] %@ 结果数 \(results.count)", type)
                     self?.handle(results)
                 }
                 browser.start(queue: self.queue)
@@ -99,8 +113,14 @@ final class LanDiscovery {
             let game = (txt["game"].flatMap { $0.isEmpty ? nil : $0 }) ?? LanProto.goGame
             let host = (txt["addr"] ?? "").trimmingCharacters(in: .whitespaces)
             let portValue = Int(txt["port"] ?? "") ?? 0
+            NSLog("[mDNS] 解析 \(name) room=\(code) addr=\(host.isEmpty ? "(空)" : host) port=\(portValue) game=\(game) txt=\(txt.keys.sorted().joined(separator: ","))")
             guard !code.isEmpty, !host.isEmpty, portValue > 0, portValue < 65536,
-                  let port = UInt16(exactly: portValue) else { continue }
+                  let port = UInt16(exactly: portValue) else {
+                // TXT 里没有 addr（或端口缺失）时旧版直接丢弃，房间永远不出现。
+                // 现在交给 UDP 通告/查询通道补全真实地址，不再静默丢弃。
+                NSLog("[mDNS] 丢弃 %@：TXT 缺 addr/port，等待 UDP 通道补全", name)
+                continue
+            }
 
             let room = LanRoom(name: name,
                                code: code,
@@ -122,11 +142,39 @@ final class LanDiscovery {
         publish()
     }
 
+    /// 把 UDP 通告/应答发现的房间并入同一个列表（去重键优先 iid）。
+    /// UDP 包来自房主本机，源地址即真实 IPv4，因此直接视为可用，不再等 TCP 探活。
+    func ingest(_ incoming: [LanRoom]) {
+        queue.async { [weak self] in
+            guard let self, self.running else { return }
+            let now = LanProto.uptimeMs()
+            for var room in incoming {
+                if let filter = self.gameFilter, room.game != filter { continue }
+                room.fromUdp = true
+                room.verified = true
+                room.probing = false
+                room.lastOkAt = now
+                room.lastProbeAt = now
+                let key = room.iid.isEmpty ? "\(room.code)@\(room.host):\(room.port)" : room.iid
+                self.rooms[key] = room
+            }
+            self.publish()
+        }
+    }
+
     private func sweep() {
         guard running else { return }
         let now = LanProto.uptimeMs()
         var removed = false
         for (key, room) in rooms {
+            // UDP 通道发现的房间：不跑 TCP 探活，只按 UDP 刷新时间过期
+            if room.fromUdp {
+                if now - room.lastOkAt > 8_000 {
+                    rooms.removeValue(forKey: key)
+                    removed = true
+                }
+                continue
+            }
             if room.verified {
                 if now - room.lastOkAt > LanProto.probeTtlMs {
                     rooms.removeValue(forKey: key)
@@ -160,6 +208,7 @@ final class LanDiscovery {
                 guard let self, var current = self.rooms[key] else { return }
                 switch result {
                 case LanProber.alive:
+                    NSLog("[探活] \(current.code) \(current.host):\(current.port) 存活")
                     current.verified = true
                     current.probing = false
                     current.lastOkAt = LanProto.uptimeMs()
@@ -168,6 +217,7 @@ final class LanDiscovery {
                     current.probing = false
                     self.rooms[key] = current
                 default:
+                    NSLog("[探活] \(current.code) \(current.host):\(current.port) 结果 \(result)，移除")
                     self.rooms.removeValue(forKey: key)
                 }
                 self.publish()

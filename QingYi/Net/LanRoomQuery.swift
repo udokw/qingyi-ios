@@ -107,6 +107,8 @@ final class LanQueryResponder {
     private var iid: String
     private var port: UInt16 = 0
     private var addr = ""
+    private var size = "19"
+    private var displayName = ""
 
     init(room: String, game: String, iid: String) {
         self.room = room
@@ -114,10 +116,12 @@ final class LanQueryResponder {
         self.iid = iid
     }
 
-    func update(port: UInt16, addr: String) {
+    func update(port: UInt16, addr: String, size: String = "19", displayName: String = "") {
         lock.lock()
         self.port = port
         self.addr = addr
+        self.size = size
+        self.displayName = displayName
         lock.unlock()
     }
 
@@ -163,11 +167,42 @@ final class LanQueryResponder {
             NSLog("[LanQuery] UDP 应答器已监听 %d", Int(LanProto.queryPort))
 
             var buffer = [UInt8](repeating: 0, count: 2048)
+            var lastAnnounce: Int64 = 0
             while true {
                 self.lock.lock()
                 let alive = self.running
                 self.lock.unlock()
                 if !alive { break }
+
+                // 房主每 3 秒向 255.255.255.255:41235 广播一次房间通告。
+                // 客机即使不发查询也能从这条通道看到房间，mDNS 被路由器过滤时仍然可用。
+                let now = LanProto.uptimeMs()
+                if now - lastAnnounce >= LanProto.announceIntervalMs {
+                    lastAnnounce = now
+                    self.lock.lock()
+                    let port = self.port, room = self.room, game = self.game
+                    let iid = self.iid, addr = self.addr, size = self.size, named = self.displayName
+                    self.lock.unlock()
+                    if port > 0 {
+                        let announce: [String: Any] = [
+                            "t": LanProto.roomAnnounceType,
+                            "room": room,
+                            "game": game,
+                            "port": Int(port),
+                            "addr": addr,
+                            "iid": iid,
+                            "size": size,
+                            "name": named,
+                            "v": LanProto.version
+                        ]
+                        if let out = try? JSONSerialization.data(withJSONObject: announce) {
+                            for host in LanProto.broadcastAddresses() {
+                                LanUdpSend.to(out, host: host, port: LanProto.queryPort, fd: s)
+                            }
+                        }
+                    }
+                }
+
                 var from = sockaddr_in()
                 var len = socklen_t(MemoryLayout<sockaddr_in>.size)
                 let n: Int = buffer.withUnsafeMutableBytes { raw in
@@ -185,9 +220,12 @@ final class LanQueryResponder {
                 self.lock.lock()
                 let room = self.room, game = self.game, iid = self.iid
                 let port = self.port, addr = self.addr
+                let size = self.size, displayName = self.displayName
                 self.lock.unlock()
                 let requested = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
-                guard requested == room, port > 0 else { continue }
+                // 空房号 = 附近房间列表的广播探测，任何房主都应答；
+                // 非空房号 = 「只填房号」的定向查询，只答匹配的房间。
+                guard requested.isEmpty || requested == room, port > 0 else { continue }
 
                 let reply: [String: Any] = [
                     "t": LanProto.roomReplyType,
@@ -196,6 +234,8 @@ final class LanQueryResponder {
                     "port": Int(port),
                     "addr": addr,
                     "iid": iid,
+                    "size": size,
+                    "name": displayName,
                     "v": LanProto.version
                 ]
                 guard let out = try? JSONSerialization.data(withJSONObject: reply) else { continue }
@@ -221,6 +261,221 @@ final class LanQueryResponder {
         if s >= 0 { shutdown(s, SHUT_RDWR) }
     }
 }
+
+/// UDP 发送工具（BSD socket 版本），供应答器/发现器共用。
+enum LanUdpSend {
+    static func to(_ data: Data, host: String, port: UInt16, fd: Int32) {
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        guard inet_pton(AF_INET, host, &addr.sin_addr) == 1 else { return }
+        data.withUnsafeBytes { raw in
+            withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    _ = sendto(fd, raw.baseAddress, raw.count, 0, sa,
+                               socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        }
+    }
+
+    static func addrString(_ addr: in_addr) -> String {
+        var value = addr
+        var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        guard inet_ntop(AF_INET, &value, &buf, socklen_t(INET_ADDRSTRLEN)) != nil else { return "" }
+        return String(cString: buf)
+    }
+}
+
+/// UDP 房间发现（mDNS 的并行通道）。
+///
+/// 实施要点与证据：
+/// - 客机每 1.5 秒向 `255.255.255.255:41235` 广播 `room_query`（空房号 = 查全部）；
+/// - 房主在 `LanQueryResponder` 里每 3 秒广播 `room_announce`，并对空房号查询直接应答；
+/// - 应答/通告的**源地址**就是房主在本网段的真实 IPv4，与「手动填 IP 能连」走同一条通路，
+///   因此这条通道成立就说明 mDNS 那一层坏了，而不是网络不通。
+final class LanUdpDiscovery {
+    var onRooms: (([LanRoom]) -> Void)?
+    var gameFilter: String?
+
+    private let queue = DispatchQueue(label: "qingyi.lan.udpdiscovery")
+    private var fd: Int32 = -1
+    private var running = false
+    private var rooms: [String: LanRoom] = [:]
+    private var lastQuery: Int64 = 0
+    private var lastPublish: Int64 = 0
+
+    private static let expireMs: Int64 = 8_000
+
+    func start() {
+        queue.async { [weak self] in
+            guard let self, !self.running else { return }
+            let s = socket(AF_INET, SOCK_DGRAM, 0)
+            guard s >= 0 else {
+                let e = errno
+                NSLog("[LanUDP] socket() 失败 POSIX %d %@", e, String(cString: strerror(e)))
+                return
+            }
+            var on: Int32 = 1
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, socklen_t(MemoryLayout<Int32>.size))
+            setsockopt(s, SOL_SOCKET, SO_BROADCAST, &on, socklen_t(MemoryLayout<Int32>.size))
+            var tv = timeval(tv_sec: 0, tv_usec: 250_000)
+            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+            // 优先绑 41235（能额外收到房主的 room_announce）；
+            // 本机已在当房主（应答器占用 41235）时退到临时端口，只靠查询应答这条路径。
+            var a = sockaddr_in()
+            a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            a.sin_family = sa_family_t(AF_INET)
+            a.sin_port = LanProto.queryPort.bigEndian
+            a.sin_addr.s_addr = 0
+            var bound = withUnsafePointer(to: &a) { p in
+                p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            if bound != 0 {
+                let e = errno
+                NSLog("[LanUDP] bind %d 失败 POSIX %d %@，改用临时端口",
+                      Int(LanProto.queryPort), e, String(cString: strerror(e)))
+                a.sin_port = 0
+                bound = withUnsafePointer(to: &a) { p in
+                    p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+            }
+            guard bound == 0 else {
+                let e = errno
+                NSLog("[LanUDP] 临时端口 bind 仍失败 POSIX %d %@", e, String(cString: strerror(e)))
+                close(s)
+                return
+            }
+            var actual = a
+            var alen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            _ = withUnsafeMutablePointer(to: &actual) { p in
+                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(s, $0, &alen) }
+            }
+            self.fd = s
+            self.running = true
+            NSLog("[LanUDP] 已启动，本机 UDP 端口 %d，广播地址 %@",
+                  Int(UInt16(bigEndian: actual.sin_port)),
+                  LanProto.broadcastAddresses().joined(separator: ","))
+
+            var buffer = [UInt8](repeating: 0, count: 2048)
+            while true {
+                if !self.running { break }
+                let now = LanProto.uptimeMs()
+                if now - self.lastQuery >= 1_500 {
+                    self.lastQuery = now
+                    self.queryCount += 1
+                    let payload: [String: Any] = [
+                        "t": LanProto.roomQueryType,
+                        "room": "",
+                        "v": LanProto.version
+                    ]
+                    if let out = try? JSONSerialization.data(withJSONObject: payload) {
+                        for host in LanProto.broadcastAddresses() {
+                            LanUdpSend.to(out, host: host, port: LanProto.queryPort, fd: s)
+                        }
+                    }
+                }
+
+                var from = sockaddr_in()
+                var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+                let n: Int = buffer.withUnsafeMutableBytes { raw in
+                    withUnsafeMutablePointer(to: &from) { fp in
+                        fp.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                            recvfrom(s, raw.baseAddress, raw.count, 0, sa, &len)
+                        }
+                    }
+                }
+                if n > 0 {
+                    self.ingest(Data(buffer[0..<n]), from: from)
+                }
+                self.sweep()
+            }
+            close(s)
+            self.fd = -1
+        }
+    }
+
+    func stop() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.running = false
+            let s = self.fd
+            if s >= 0 { shutdown(s, SHUT_RDWR) }
+            self.rooms.removeAll()
+            DispatchQueue.main.async { self.onRooms?([]) }
+        }
+    }
+
+    private func ingest(_ body: Data, from: sockaddr_in) {
+        guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return }
+        let type = obj["t"] as? String ?? ""
+        guard type == LanProto.roomReplyType || type == LanProto.roomAnnounceType else { return }
+        let code = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
+        let portValue = (obj["port"] as? NSNumber)?.intValue ?? 0
+        guard !code.isEmpty, portValue > 0, portValue < 65536, let port = UInt16(exactly: portValue) else { return }
+        // 源地址优先：这正是「手动填 IP」用的那个地址
+        var host = LanUdpSend.addrString(from.sin_addr)
+        if host.isEmpty { host = (obj["addr"] as? String ?? "").trimmingCharacters(in: .whitespaces) }
+        guard !host.isEmpty else { return }
+        if let filter = gameFilter, let game = obj["game"] as? String, !game.isEmpty, game != filter { return }
+
+        let game = (obj["game"] as? String) ?? LanProto.goGame
+        let size = (obj["size"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (game == LanProto.xiangqiGame ? "9" : "19")
+        let iid = (obj["iid"] as? String) ?? ""
+        let name = (obj["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "QY-\(code)-\(size)"
+        let now = LanProto.uptimeMs()
+        let key = iid.isEmpty ? "\(code)@\(host):\(port)" : iid
+
+        receiveCount += 1
+        if rooms[key] == nil {
+            NSLog("[LanUDP] 收到 %@：房号 %@ %@ %@:%d", type, code, game, host, Int(port))
+        }
+        rooms[key] = LanRoom(name: name,
+                             code: code,
+                             size: size,
+                             game: game,
+                             host: host,
+                             port: port,
+                             pid: 0,
+                             iid: iid,
+                             ts: 0,
+                             foundAt: now,
+                             lastProbeAt: now,
+                             lastOkAt: now,
+                             verified: true,
+                             probing: false,
+                             fromUdp: true)
+        publish(force: false)
+    }
+
+    private func sweep() {
+        let now = LanProto.uptimeMs()
+        var removed = false
+        for (key, room) in rooms where now - room.lastOkAt > Self.expireMs {
+            rooms.removeValue(forKey: key)
+            removed = true
+        }
+        if removed { publish(force: true) }
+    }
+
+    private func publish(force: Bool) {
+        let now = LanProto.uptimeMs()
+        if !force && now - lastPublish < 400 { return }
+        lastPublish = now
+        let list = Array(rooms.values)
+        DispatchQueue.main.async { [weak self] in
+            self?.onRooms?(list)
+        }
+    }
+}
+
 
 /// App 内端口自检：用 BSD bind 直接问内核，把 errno 原样输出。
 /// 上一版用 NWListener 做探针，14 个端口全部返回 POSIX 22(EINVAL)，

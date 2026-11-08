@@ -694,6 +694,7 @@ final class LanHub: ObservableObject {
     private var host: LanHost?
     private var client: LanClient?
     private var discovery: LanDiscovery?
+    private var udpDiscovery: LanUdpDiscovery?
     private var queryResponder: LanQueryResponder?
 
     /// 输入框实时保存昵称，不必等到建房/加入才落盘
@@ -794,11 +795,24 @@ final class LanHub: ObservableObject {
         }
         discovery = d
         d.start()
+
+        // 并行通道：UDP 广播查询 + 房主 room_announce。
+        // mDNS 被路由器/热点（组播过滤、客户端隔离）挡掉时，这条通道仍与「手动填 IP」同路可达。
+        let udp = LanUdpDiscovery()
+        udp.gameFilter = game
+        udp.onRooms = { [weak d] list in
+            NSLog("[发现] UDP 通道 %d 个房间", list.count)
+            d?.ingest(list)
+        }
+        udpDiscovery = udp
+        udp.start()
     }
 
     func stopBrowsing() {
         discovery?.stop()
         discovery = nil
+        udpDiscovery?.stop()
+        udpDiscovery = nil
         rooms = []
     }
 
@@ -842,7 +856,9 @@ final class LanHub: ObservableObject {
                 self.port = port
                 self.hostAddress = addr.isEmpty ? "\(port)" : "\(addr):\(port)"
                 self.state = .hosting
-                self.queryResponder?.update(port: port, addr: addr)
+                self.queryResponder?.update(port: port, addr: addr,
+                                            size: newSession.size == 9 ? "9" : "\(newSession.size)",
+                                            displayName: "QY-\(self.roomCode)-\(newSession.size)")
                 self.updateProbePayload()
             }
         }
@@ -2063,11 +2079,13 @@ final class LanHub: ObservableObject {
         host?.stop()
         client?.close()
         discovery?.stop()
+        udpDiscovery?.stop()
         queryResponder?.stop()
 
         host = nil
         client = nil
         discovery = nil
+        udpDiscovery = nil
         queryResponder = nil
         session = nil
         guestPresent = false

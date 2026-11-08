@@ -31,12 +31,17 @@ enum LanProto {
     static let queryPort: UInt16 = 41235
     static let roomQueryType = "room_query"
     static let roomReplyType = "room_reply"
+    /// 房主周期性广播的房间通告（mDNS 失效时的并行发现通道）
+    static let roomAnnounceType = "room_announce"
+    static let announceIntervalMs: Int64 = 3_000
 
-    /// 房号规范化：去空格、转大写。用户手输的 `a b 2 9` / `ab29` 都归一成 `AB29`。
+    /// 房号固定 4 位，且从 1.1.6 起只允许数字。
+    static let roomCodeLength = 4
+
+    /// 房号规范化：只保留数字并截到 4 位。
+    /// 用户手输的 `4 8 2 1` / `4821abc` 都归一成 `4821`。
     static func normalizeRoomCode(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let compact = trimmed.replacingOccurrences(of: " ", with: "")
-        return compact.uppercased()
+        String(text.filter { $0.isNumber }.prefix(roomCodeLength))
     }
 
     static let maxFrame = 65536
@@ -99,10 +104,9 @@ enum LanProto {
         String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12)).lowercased()
     }
 
-    /// 4 位房间码，去掉容易混淆的 I/L/O/U。
+    /// 4 位纯数字房号（旧版含字母的房号不再生成）。
     static func newRoomCode() -> String {
-        let alphabet = Array("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
-        return String((0..<4).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] })
+        String(format: "%04d", Int.random(in: 0...9999))
     }
 
     /// 注册实例 ID：每次注册新生成 8 位，用于同一房间码去重。

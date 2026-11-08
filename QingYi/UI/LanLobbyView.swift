@@ -69,6 +69,11 @@ struct LanLobbyView: View {
             // 改一次即落盘（UserDefaults），重启后沿用，不必等到建房/加入
             hub.rememberName(value)
         }
+        .onChange(of: joinCode) { value in
+            // 房号只接受数字：粘贴的字母/空格即时过滤，最多 4 位
+            let cleaned = LanProto.normalizeRoomCode(value)
+            if cleaned != value { joinCode = cleaned }
+        }
         .onDisappear { hub.stopBrowsing() }
         .onChange(of: hub.state) { value in
             if value == .playing || value == .finished {
@@ -213,7 +218,7 @@ struct LanLobbyView: View {
     private var joinPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
             field("你的称呼", text: $name, keyboard: .default)
-            field("四位房号", text: $joinCode, keyboard: .asciiCapable)
+            field("四位房号（纯数字）", text: $joinCode, keyboard: .numberPad)
             field("手动地址（如 192.168.1.5:41234）", text: $manual, keyboard: .numbersAndPunctuation)
             Text("只填房号也能加入：留空地址，会自动按房号在同一网络内查询。")
                 .font(.system(size: 11))
