@@ -13,6 +13,7 @@ struct LanLobbyView: View {
     @ObservedObject private var hub = LanHub.shared
     let game: GameKind
 
+    @State private var tab = 0
     @State private var name = ""
     @State private var joinCode = ""
     @State private var manual = ""
@@ -34,11 +35,15 @@ struct LanLobbyView: View {
                 LanGameView(game: game)
             } else {
                 ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 14) {
                         header
                         if hub.state == .idle {
-                            createPanel
-                            joinPanel
+                            segmentedTabs
+                            if tab == 0 {
+                                createPanel
+                            } else {
+                                joinPanel
+                            }
                         } else {
                             roomPanel
                         }
@@ -59,6 +64,10 @@ struct LanLobbyView: View {
         .onAppear {
             if name.isEmpty { name = hub.localName }
             hub.startBrowsing(game: gameId)
+        }
+        .onChange(of: name) { value in
+            // 改一次即落盘（UserDefaults），重启后沿用，不必等到建房/加入
+            hub.rememberName(value)
         }
         .onDisappear { hub.stopBrowsing() }
         .onChange(of: hub.state) { value in
@@ -112,11 +121,44 @@ struct LanLobbyView: View {
         .padding(.top, 8)
     }
 
+    // MARK: - 分段标签（与安卓端 segGroup 一致：两等宽、40 高、选中实底）
+
+    private var segmentedTabs: some View {
+        let radius: CGFloat = theme.isHara ? 2 : 19
+        return HStack(spacing: 0) {
+            segmentButton("创建房间", index: 0, radius: radius)
+            segmentButton("加入房间", index: 1, radius: radius)
+        }
+        .frame(height: 40)
+        .overlay(
+            RoundedRectangle(cornerRadius: radius)
+                .stroke(theme.isHara ? theme.btnStroke : Color.clear, lineWidth: 0.8)
+        )
+    }
+
+    private func segmentButton(_ title: String, index: Int, radius: CGFloat) -> some View {
+        Button {
+            localError = ""
+            tab = index
+        } label: {
+            Text(title)
+                .font(.system(size: 14, weight: .bold, design: .serif))
+                .tracking(1.1)
+                .foregroundColor(tab == index ? theme.primaryText : theme.sub)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: radius)
+                        .fill(tab == index ? theme.primaryBg : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - 创建
 
     private var createPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("创建房间")
             field("你的称呼", text: $name, keyboard: .default)
             HStack(spacing: 22) {
                 CheckRow(title: colorOptionTitle(1), checked: hostColor == 1, theme: theme) { hostColor = 1 }
@@ -170,7 +212,6 @@ struct LanLobbyView: View {
 
     private var joinPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("加入房间")
             field("你的称呼", text: $name, keyboard: .default)
             field("四位房号", text: $joinCode, keyboard: .asciiCapable)
             field("手动地址（如 192.168.1.5:41234）", text: $manual, keyboard: .numbersAndPunctuation)
@@ -210,12 +251,17 @@ struct LanLobbyView: View {
                 .padding(.vertical, 6)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(hub.rooms) { room in
+                    ForEach(Array(hub.rooms.prefix(4))) { room in
                         roomRow(room)
-                        if room.id != hub.rooms.last?.id {
+                        if room.id != hub.rooms.prefix(4).last?.id {
                             Hairline(color: theme.divider)
                         }
                     }
+                }
+                if hub.rooms.count > 4 {
+                    Text("还有 \(hub.rooms.count - 4) 个房间，可用房号直接加入")
+                        .font(.system(size: 11))
+                        .foregroundColor(theme.foot)
                 }
             }
         }

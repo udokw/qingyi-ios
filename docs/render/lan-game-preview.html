@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>清弈 · 联机对局页渲染稿</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 390px; height: 844px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  .statusbar {
+    height: 47px; display: flex; align-items: flex-end; justify-content: space-between;
+    padding: 0 22px 6px 24px; font-size: 12px; font-weight: 600;
+  }
+  .homebar { height: 34px; display: flex; align-items: center; justify-content: center; }
+  .homebar i { width: 134px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.28); }
+  .page { flex: 1; display: flex; flex-direction: column; padding: 4px 6px 14px 6px; }
+</style>
+</head>
+<body>
+<div class="statusbar"><span>9:41</span><span>5G&nbsp;&nbsp;▮</span></div>
+<div class="page" id="page"></div>
+<div class="homebar"><i></i></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const id = params.get("theme") === "monument" ? "monument" : "hara";
+const game = params.get("game") === "xiangqi" ? "xiangqi" : "go";
+
+const T = id === "hara" ? {
+  windowBg: "#F7F4ED", title: "#1A1A1A", sub: "#6B665C", foot: "#9A9384", accent: "#C73E2B",
+  divider: "#DDD6C4", boardBg: "#E3B771", boardLine: "#3A3226", marker: "#C73E2B",
+  btnBg: "transparent", btnText: "#1A1A1A", btnRadius: "2px",
+  primaryBg: "#1A1A1A", primaryText: "#F7F4ED", dangerText: "#C73E2B", dangerFill: "transparent"
+} : {
+  windowBg: "#F6F1EA", title: "#3E3A36", sub: "#9A9186", foot: "#B0A79B", accent: "#E8846B",
+  divider: "transparent", boardBg: "#F3E7CE", boardLine: "#A08B6D", marker: "#E8846B",
+  btnBg: "#EFE7DA", btnText: "#3E3A36", btnRadius: "22px",
+  primaryBg: "#B7CDB4", primaryText: "#2F3A2E", dangerText: "#B06A55", dangerFill: "#F5DFD8"
+};
+document.body.style.background = T.windowBg;
+document.body.style.color = T.title;
+document.querySelector(".statusbar").style.color = T.title;
+
+const serif = '"Songti SC","SimSun","STSong",serif';
+const page = document.getElementById("page");
+
+/* ---------- 顶部 ---------- */
+const topBar = document.createElement("div");
+topBar.style.cssText = "display:flex;align-items:flex-start;padding-top:4px";
+topBar.innerHTML = `
+  <div>
+    <div style="font-family:${serif};font-size:16px;font-weight:700;line-height:21px">${game === "go" ? "围棋" : "象棋"} · 房号 4821</div>
+    <div style="font-size:12px;line-height:15px;margin-top:3px;color:${T.sub}">我执${game === "go" ? "黑" : "红"} · 对手 棋友Ａ</div>
+  </div>
+  <div style="margin-left:auto;font-size:12px;color:${T.foot};padding:4px 9px;border:0.8px solid ${T.divider};border-radius:${id==='hara'?'2px':'10px'}">在线</div>
+`;
+page.appendChild(topBar);
+
+const spacer = document.createElement("div");
+spacer.style.flex = "0 0 8px";
+page.appendChild(spacer);
+
+/* ---------- 棋盘 ---------- */
+const boardW = 378;
+const boardH = game === "go" ? 378 : Math.round(boardW * 10 / 9);
+const board = document.createElement("div");
+board.style.cssText = `margin-top:${game === "go" ? 10 : 8}px;width:${boardW}px;height:${boardH}px;background:${T.boardBg};position:relative;border:1px solid ${T.boardLine}BB`;
+page.appendChild(board);
+
+if (game === "go") {
+  const N = 19, W = boardW, margin = W * 0.042, cell = (W - margin * 2) / (N - 1);
+  const stones = [
+    [3,3,'b'],[15,3,'w'],[3,15,'w'],[15,15,'b'],[9,9,'b'],
+    [9,10,'w'],[9,11,'b'],[10,10,'w'],[8,10,'b'],[10,9,'w'],
+    [6,6,'b'],[7,6,'w'],[6,7,'b'],[12,12,'w'],[11,12,'b'],
+    [12,13,'w'],[13,12,'b'],[4,10,'w'],[14,8,'b'],[14,9,'w'],
+    [5,13,'b'],[13,6,'w'],[8,13,'b'],[10,14,'w'],[7,9,'b'],
+    [11,9,'w'],[9,7,'b'],[9,6,'w'],[12,10,'b'],[6,11,'w'],
+  ];
+  for (let i = 0; i < N; i++) {
+    const p = margin + i * cell;
+    const h = document.createElement("div");
+    h.style.cssText = `position:absolute;left:${margin}px;top:${p}px;width:${W - margin*2}px;height:0.8px;background:${T.boardLine};opacity:.9`;
+    const v = document.createElement("div");
+    v.style.cssText = `position:absolute;left:${p}px;top:${margin}px;width:0.8px;height:${W - margin*2}px;background:${T.boardLine};opacity:.9`;
+    board.append(h, v);
+  }
+  [3,9,15].forEach(y => [3,9,15].forEach(x => {
+    const d = document.createElement("div");
+    const r = cell * 0.09;
+    d.style.cssText = `position:absolute;left:${margin + x*cell - r}px;top:${margin + y*cell - r}px;width:${r*2}px;height:${r*2}px;border-radius:50%;background:${T.boardLine}`;
+    board.appendChild(d);
+  }));
+  stones.forEach(([x, y, c]) => {
+    const r = cell * 0.47;
+    const s = document.createElement("div");
+    const fill = c === 'b'
+      ? `radial-gradient(circle at 32% 30%, #6E6E6E 0%, #101010 78%)`
+      : `radial-gradient(circle at 32% 30%, #FFFFFF 0%, #D8D3C8 80%)`;
+    s.style.cssText = `position:absolute;left:${margin + x*cell - r}px;top:${margin + y*cell - r}px;width:${r*2}px;height:${r*2}px;border-radius:50%;background:${fill};` +
+      (c === 'w' ? "box-shadow:0 0 0 0.6px rgba(0,0,0,.18);" : "box-shadow:0 1px 1.5px rgba(0,0,0,.18);");
+    board.appendChild(s);
+  });
+  (() => {
+    const [x, y] = [12, 10];
+    const r = cell * 0.235;
+    const ring = document.createElement("div");
+    ring.style.cssText = `position:absolute;left:${margin + x*cell - r}px;top:${margin + y*cell - r}px;width:${r*2}px;height:${r*2}px;border-radius:50%;border:3px solid ${T.marker};opacity:.95`;
+    board.appendChild(ring);
+  })();
+} else {
+  const cols = 9, rows = 10;
+  const marginX = boardW * 0.05;
+  const cell = (boardW - marginX * 2) / (cols - 1);
+  const originY = (boardH - cell * (rows - 1)) / 2;
+  const left = marginX, right = left + cell * (cols - 1);
+  const top = originY, height = cell * (rows - 1);
+
+  const frame = document.createElement("div");
+  frame.style.cssText = `position:absolute;left:${left - cell*0.28}px;top:${top - cell*0.28}px;width:${cell*(cols-1)+cell*0.56}px;height:${height+cell*0.56}px;border:1.4px solid ${T.boardLine}8C;border-radius:3px`;
+  board.appendChild(frame);
+
+  for (let y = 0; y < rows; y++) {
+    const l = document.createElement("div");
+    l.style.cssText = `position:absolute;left:${left}px;top:${top + y*cell}px;width:${cell*(cols-1)}px;height:1px;background:${T.boardLine}`;
+    board.appendChild(l);
+  }
+  for (let x = 0; x < cols; x++) {
+    const px = left + x * cell;
+    if (x === 0 || x === cols - 1) {
+      const v = document.createElement("div");
+      v.style.cssText = `position:absolute;left:${px}px;top:${top}px;width:1px;height:${height}px;background:${T.boardLine}`;
+      board.appendChild(v);
+    } else {
+      const v1 = document.createElement("div");
+      v1.style.cssText = `position:absolute;left:${px}px;top:${top}px;width:1px;height:${cell*4}px;background:${T.boardLine}`;
+      const v2 = document.createElement("div");
+      v2.style.cssText = `position:absolute;left:${px}px;top:${top + cell*5}px;width:1px;height:${cell*4}px;background:${T.boardLine}`;
+      board.append(v1, v2);
+    }
+  }
+  // 九宫斜线：以宫心为锚点，画两条 45° 细线
+  [1, 8].forEach(cy => {
+    const cx = left + 4 * cell;
+    const cyy = top + cy * cell;
+    const len = Math.sqrt(2) * 2 * cell;
+    [45, -45].forEach(deg => {
+      const d = document.createElement("div");
+      d.style.cssText = `position:absolute;left:${cx - len / 2}px;top:${cyy}px;width:${len}px;height:1px;background:${T.boardLine};` +
+        `transform:translateY(-50%) rotate(${deg}deg);transform-origin:center`;
+      board.appendChild(d);
+    });
+  });
+  const river = document.createElement("div");
+  river.style.cssText = `position:absolute;left:${left}px;top:${top + cell*4}px;width:${cell*(cols-1)}px;height:${cell}px;display:flex;align-items:center;justify-content:center;gap:${cell*0.9}px;font-family:${serif};font-size:13px;letter-spacing:6px;color:${T.boardLine};opacity:.72`;
+  river.innerHTML = "<span>楚 河</span><span>汉 界</span>";
+  board.appendChild(river);
+
+  const pieces = [];
+  const push = (x, y, ch, red) => pieces.push([x, y, ch, red]);
+  const back = ["车","马","象","士","将","士","象","马","车"];
+  back.forEach((ch, x) => push(x, 0, ch, false));
+  push(1, 2, "炮", false); push(7, 2, "炮", false);
+  [0,2,4,6,8].forEach(x => push(x, 3, "卒", false));
+  [0,2,4,6,8].forEach(x => push(x, 6, "兵", true));
+  push(1, 7, "炮", true); push(7, 7, "炮", true);
+  back.forEach((ch, x) => push(x, 9, ch === "将" ? "帅" : (ch === "士" ? "仕" : (ch === "象" ? "相" : ch)), true));
+
+  pieces.forEach(([x, y, ch, red]) => {
+    const r = cell * 0.44;
+    const px = left + x * cell, py = top + y * cell;
+    const el = document.createElement("div");
+    el.style.cssText = `position:absolute;left:${px-r}px;top:${py-r}px;width:${r*2}px;height:${r*2}px;border-radius:50%;` +
+      `background:radial-gradient(circle at 34% 28%, #FFFDF6 0%, #EFE2C6 82%);` +
+      `border:1.4px solid ${red ? "#B5443A" : "#2E2A26"};display:flex;align-items:center;justify-content:center;` +
+      `font-family:${serif};font-size:${cell*0.52}px;font-weight:700;color:${red ? "#B5443A" : "#2E2A26"};` +
+      `box-shadow:0 1px 2px rgba(0,0,0,.16)`;
+    el.textContent = ch;
+    board.appendChild(el);
+  });
+
+  const lm = pieces.find(p => p[0] === 1 && p[1] === 7);
+  if (lm) {
+    const r = cell * 0.52, px = left + 1 * cell, py = top + 7 * cell;
+    const ring = document.createElement("div");
+    ring.style.cssText = `position:absolute;left:${px-r}px;top:${py-r}px;width:${r*2}px;height:${r*2}px;border-radius:50%;border:2px solid ${T.marker};opacity:.9`;
+    board.appendChild(ring);
+  }
+}
+
+/* ---------- 信息块 ---------- */
+const info = document.createElement("div");
+info.style.cssText = "margin-top:10px;display:flex;flex-direction:column;gap:6px";
+info.innerHTML = `
+  <div style="display:flex;gap:12px">
+    ${clock("我方", "12:04", true)}
+    ${clock("对手", "11:51", false)}
+  </div>
+  <div style="text-align:center;font-size:13px;color:${T.accent}">
+    轮到你走 · 第 47 手 · ${game === "go" ? "黑 断" : "炮二平五"}
+  </div>
+`;
+function clock(label, time, active) {
+  return `<div style="flex:1;text-align:center;padding:4px 0;border:0.8px solid ${active ? T.accent + 'B3' : T.divider};border-radius:${id==='hara'?'2px':'10px'};background:${id==='hara'?'transparent':T.btnBg}">
+    <div style="font-size:10px;line-height:12px;color:${T.foot}">${label}</div>
+    <div style="font-size:13px;line-height:16px;margin-top:1px;font-family:ui-monospace,Menlo,monospace;font-weight:${active?600:400};color:${active?T.accent:T.title}">${time}</div>
+  </div>`;
+}
+page.appendChild(info);
+
+/* ---------- 装饰条 / 标语（仅粉彩） ---------- */
+if (id !== "hara") {
+  if (game === "go") {
+    const bar = document.createElement("div");
+    bar.style.cssText = "margin-top:8px;display:flex;justify-content:center";
+    bar.innerHTML = `<div style="width:140px;height:10px;border-radius:5px;background:#D8C9B8"></div>`;
+    page.appendChild(bar);
+    const tag = document.createElement("div");
+    tag.style.cssText = `margin-top:16px;text-align:center;font-size:11px;letter-spacing:3.3px;color:${T.foot}`;
+    tag.textContent = "安 静 的 一 手";
+    page.appendChild(tag);
+  } else {
+    const tag = document.createElement("div");
+    tag.style.cssText = `margin-top:6px;text-align:center;font-size:11px;letter-spacing:3.3px;color:${T.foot}`;
+    tag.textContent = "楚 河 汉 界 · 一 局 清 弈";
+    page.appendChild(tag);
+  }
+}
+
+/* ---------- 底部按钮 ---------- */
+const rows = game === "go"
+  ? [["悔棋","UNDO","normal"],["停一手","PASS","normal"],["认输","RESIGN","danger"],["数子","COUNT","normal"],["离开","LEAVE","normal"]]
+  : [["悔棋","UNDO","normal"],["认输","RESIGN","danger"],["离开","LEAVE","normal"]];
+const topGap = game === "go" ? 40 : (id === "hara" ? 22 : 40);
+const controlWrap = document.createElement("div");
+controlWrap.style.cssText = `margin-top:${topGap}px`;
+page.appendChild(controlWrap);
+
+if (id === "hara") {
+  controlWrap.style.borderTop = `0.6px solid ${T.divider}`;
+  const chunks = [rows.slice(0,3), rows.slice(3)].filter(c => c.length);
+  chunks.forEach(chunk => {
+    const row = document.createElement("div");
+    row.style.cssText = `display:flex;height:56px;border-bottom:0.6px solid ${T.divider}`;
+    chunk.forEach(([t, en, kind], i) => {
+      if (i > 0) {
+        const d = document.createElement("div");
+        d.style.cssText = `width:0.6px;background:${T.divider}`;
+        row.appendChild(d);
+      }
+      const cell = document.createElement("div");
+      const primary = kind === "primary";
+      cell.style.cssText = `flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:${primary?T.primaryBg:'transparent'}`;
+      cell.innerHTML = `
+        <div style="font-size:15px;line-height:18px;color:${kind==='danger'?T.dangerText:(primary?T.primaryText:T.title)}">${t}</div>
+        <div style="font-size:9px;line-height:11px;letter-spacing:1px;color:${primary?T.primaryText+'B3':T.sub}">${en}</div>`;
+      row.appendChild(cell);
+    });
+    controlWrap.appendChild(row);
+  });
+} else {
+  const chunks = [rows.slice(0,3), rows.slice(3)].filter(c => c.length);
+  controlWrap.style.display = "flex";
+  controlWrap.style.flexDirection = "column";
+  controlWrap.style.gap = "12px";
+  controlWrap.style.padding = "0 6px";
+  chunks.forEach(chunk => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px";
+    chunk.forEach(([t, en, kind]) => {
+      const primary = kind === "primary";
+      const cell = document.createElement("div");
+      cell.style.cssText = `flex:1;text-align:center;padding:10px 0;border-radius:${T.btnRadius};font-family:${serif};font-size:14px;font-weight:500;` +
+        `background:${primary?T.primaryBg:(kind==='danger'?T.dangerFill:T.btnBg)};color:${primary?T.primaryText:(kind==='danger'?T.dangerText:T.btnText)}`;
+      cell.textContent = t;
+      row.appendChild(cell);
+    });
+    controlWrap.appendChild(row);
+  });
+}
+
+/* ---------- 底部签字（仅墨白） ---------- */
+if (id === "hara") {
+  const sig = document.createElement("div");
+  sig.style.cssText = `margin-top:${game === "go" ? 24 : 20}px;text-align:center;font-size:11px;letter-spacing:2.75px;color:${T.foot}`;
+  sig.textContent = game === "go" ? "清 弈 引 擎 · 围 棋" : "清 弈 引 擎 · 象 棋";
+  page.appendChild(sig);
+}
+</script>
+</body>
+</html>

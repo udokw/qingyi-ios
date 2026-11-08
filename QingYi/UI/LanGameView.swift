@@ -47,16 +47,36 @@ struct LanGameView: View {
                 Spacer(minLength: 8)
 
                 boardArea
-                    .padding(.top, 10)
+                    .padding(.top, game == .go ? 10 : 8)
 
                 infoBlock
                     .padding(.top, 10)
 
+                if !theme.isHara {
+                    if game == .go {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Color(hex: 0xD8C9B8))
+                            .frame(width: 140, height: 10)
+                            .padding(.top, 8)
+                        Text("安 静 的 一 手")
+                            .font(.system(size: 11))
+                            .tracking(3.3)
+                            .foregroundColor(theme.foot)
+                            .padding(.top, 16)
+                    } else {
+                        Text("楚 河 汉 界 · 一 局 清 弈")
+                            .font(.system(size: 11))
+                            .tracking(3.3)
+                            .foregroundColor(theme.foot)
+                            .padding(.top, 6)
+                    }
+                }
+
                 controls
-                    .padding(.top, theme.isHara ? 22 : 40)
+                    .padding(.top, game == .go ? 40 : (theme.isHara ? 22 : 40))
 
                 if theme.isHara {
-                    signature.padding(.top, 20)
+                    signature.padding(.top, game == .go ? 24 : 20)
                 }
 
                 Spacer(minLength: 0)
@@ -270,22 +290,15 @@ struct LanGameView: View {
     }
 
     private var moveLine: some View {
-        HStack(spacing: 8) {
-            Text("第 \(hub.moveNo) 手")
-                .font(.system(size: 12))
-                .foregroundColor(theme.foot)
-            if !hub.lastMoveText.isEmpty {
-                Text(hub.lastMoveText)
-                    .font(.system(size: 13))
-                    .foregroundColor(theme.sub)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-            }
-            Spacer(minLength: 0)
-            Text(hub.state == .playing ? (hub.isMyTurn ? "轮到你走" : "等待对手") : "")
-                .font(.system(size: 12))
-                .foregroundColor(hub.isMyTurn ? theme.accent : theme.sub)
-        }
+        let turnHint = hub.state == .playing ? (hub.isMyTurn ? "轮到你走" : "等待对手走子") : ""
+        let movePart = hub.lastMoveText.isEmpty ? "" : "第 \(hub.moveNo) 手 · \(hub.lastMoveText)"
+        let text = [turnHint, movePart].filter { !$0.isEmpty }.joined(separator: " · ")
+        return Text(text)
+            .font(.system(size: 13))
+            .foregroundColor(hub.isMyTurn && hub.state == .playing ? theme.accent : theme.sub)
+            .lineLimit(1)
+            .truncationMode(.head)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // MARK: - 操作（与单机页同一套按钮 / 栅格）

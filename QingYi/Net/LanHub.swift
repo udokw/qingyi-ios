@@ -652,7 +652,16 @@ final class LanHub: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var rooms: [LanRoom] = []
     @Published private(set) var roomCode = ""
-    @Published var localName = "棋友"
+    /// 昵称改一次即写入 UserDefaults，重启后沿用
+    static let localNameKey = "lan.localName"
+
+    @Published var localName: String = UserDefaults.standard.string(forKey: LanHub.localNameKey) ?? "棋友" {
+        didSet {
+            let trimmed = localName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            UserDefaults.standard.set(trimmed, forKey: LanHub.localNameKey)
+        }
+    }
     @Published private(set) var opponentName = "对手"
     @Published private(set) var gameId = ""
     @Published private(set) var myColor = 1
@@ -686,6 +695,13 @@ final class LanHub: ObservableObject {
     private var client: LanClient?
     private var discovery: LanDiscovery?
     private var queryResponder: LanQueryResponder?
+
+    /// 输入框实时保存昵称，不必等到建房/加入才落盘
+    func rememberName(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != localName else { return }
+        localName = trimmed
+    }
 
     private var guestClock: [String: Any]?
     private var guestClockAt: Int64 = 0
@@ -797,7 +813,7 @@ final class LanHub: ObservableObject {
         stop()
         role = .host
         gameId = game == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
-        localName = Self.safe(name, "棋友")
+        localName = Self.safe(name, localName)
         hostColor = color == 2 ? 2 : 1
         myColor = hostColor
         roomCode = LanProto.newRoomCode()
@@ -892,7 +908,7 @@ final class LanHub: ObservableObject {
     func joinRoom(candidates: [String], code: String, name: String, game: String?) {
         stop()
         role = .guest
-        localName = Self.safe(name, "棋友")
+        localName = Self.safe(name, localName)
         roomCode = LanProto.normalizeRoomCode(code)
         gameId = (game ?? "").trimmingCharacters(in: .whitespaces)
         state = .connecting
@@ -933,7 +949,7 @@ final class LanHub: ObservableObject {
                                 name: String, game: String?) {
         stop()
         role = .guest
-        localName = Self.safe(name, "棋友")
+        localName = Self.safe(name, localName)
         roomCode = code
         gameId = (game ?? "").trimmingCharacters(in: .whitespaces)
         state = .connecting
@@ -1693,22 +1709,25 @@ final class LanHub: ObservableObject {
         }
     }
 
-    /// 终局音效：象棋沿用提示音；围棋按胜负方分别播放喝彩/收束音。
+    /// 终局音效：围棋、象棋都按胜负方分别播放喝彩/收束音，不再复用将军音。
     private func playGameOverSound() {
-        // 围棋按座位区分胜负：赢家喝彩音，输家收束音；不再复用象棋将军音。
+        let won: Bool?
         if gameId == LanProto.goGame {
-            let won: Bool?
+            // 围棋：黑胜 B+… / 白胜 W+…
             if resultCode.hasPrefix("B+") { won = myColor == 1 }
             else if resultCode.hasPrefix("W+") { won = myColor == 2 }
             else { won = nil }
-            switch won {
-            case .some(true): SoundPlayer.shared.playWin()
-            case .some(false): SoundPlayer.shared.playLose()
-            case .none: SoundPlayer.shared.playLose()
-            }
-            return
+        } else {
+            // 象棋：红胜 R / 黑胜 B / draw
+            if resultCode.hasPrefix("R") { won = myColor == 1 }
+            else if resultCode.hasPrefix("B") { won = myColor == 2 }
+            else { won = nil }
         }
-        SoundPlayer.shared.playCheck()
+        switch won {
+        case .some(true): SoundPlayer.shared.playWin()
+        case .some(false): SoundPlayer.shared.playLose()
+        case .none: SoundPlayer.shared.playLose()
+        }
     }
 
     private func replyPong(_ ping: [String: Any]) {
