@@ -11,7 +11,7 @@ final class SoundPlayer {
     private init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
-        for name in ["xq_move", "xq_check"] {
+        for name in ["xq_move", "xq_check", "go_win", "go_lose"] {
             guard let url = Bundle.main.url(forResource: name, withExtension: "wav"),
                   let player = try? AVAudioPlayer(contentsOf: url) else { continue }
             player.prepareToPlay()
@@ -37,6 +37,17 @@ final class SoundPlayer {
     func playStone() {
         guard enabled else { return }
         play("xq_move")
+    }
+
+    /// 围棋终局：赢家听喝彩，输家听收束音，不再复用象棋「将军」音。
+    func playWin() {
+        guard enabled else { return }
+        play("go_win")
+    }
+
+    func playLose() {
+        guard enabled else { return }
+        play("go_lose")
     }
 
     private func play(_ name: String) {

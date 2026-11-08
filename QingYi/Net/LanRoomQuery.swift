@@ -38,7 +38,13 @@ enum LanRoomQuery {
         var result: [String] = []
         var buffer = [UInt8](repeating: 0, count: 2048)
         let deadline = Date().addingTimeInterval(timeout)
+        var lastSend = Date.distantPast
         while Date() < deadline {
+            // 广播 UDP 可能被丢弃：每 400ms 重发一次查询
+            if Date().timeIntervalSince(lastSend) > 0.4 {
+                for host in LanProto.broadcastAddresses() { send(fd, data, to: host) }
+                lastSend = Date()
+            }
             var from = sockaddr_in()
             var len = socklen_t(MemoryLayout<sockaddr_in>.size)
             let n: Int = buffer.withUnsafeMutableBytes { raw in
@@ -54,12 +60,22 @@ enum LanRoomQuery {
                   (obj["t"] as? String) == LanProto.roomReplyType else { continue }
             let room = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
             guard room == code else { continue }
-            let addr = (obj["addr"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            // 应答包的源地址就是房主在本网段的真实地址，比 TXT 里的 addr 更可靠
+            let source = string(from.sin_addr)
+            var addr = (obj["addr"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if !source.isEmpty { addr = source }
             guard let port = obj["port"] as? Int, port > 0, port < 65536, !addr.isEmpty else { continue }
             let endpoint = "\(addr):\(port)"
             if !result.contains(endpoint) { result.append(endpoint) }
         }
         return result
+    }
+
+    private static func string(_ addr: in_addr) -> String {
+        var value = addr
+        var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        guard inet_ntop(AF_INET, &value, &buf, socklen_t(INET_ADDRSTRLEN)) != nil else { return "" }
+        return String(cString: buf)
     }
 
     private static func send(_ fd: Int32, _ data: Data, to host: String) {
@@ -84,7 +100,8 @@ enum LanRoomQuery {
 final class LanQueryResponder {
     private let queue = DispatchQueue(label: "qingyi.lan.query")
     private let lock = NSLock()
-    private var listener: NWListener?
+    private var fd: Int32 = -1
+    private var running = false
     private var room: String
     private var game: String
     private var iid: String
@@ -104,62 +121,110 @@ final class LanQueryResponder {
         lock.unlock()
     }
 
+    /// 用 BSD UDP socket 直接监听 41235。之前用 NWListener(.udp) 在本机实测会进入
+    /// EINVAL(22) 且没有日志，房号查询因此静默失效；BSD socket 行为可预测、错误码可打印。
     func start() {
         queue.async { [weak self] in
-            guard let self, self.listener == nil,
-                  let nwPort = NWEndpoint.Port(rawValue: LanProto.queryPort) else { return }
-            let params = NWParameters.udp
-            params.allowLocalEndpointReuse = true
-            guard let l = try? NWListener(using: params, on: nwPort) else { return }
-            l.newConnectionHandler = { [weak self] connection in
-                self?.handle(connection)
+            guard let self else { return }
+            self.lock.lock()
+            if self.running { self.lock.unlock(); return }
+            let s = socket(AF_INET, SOCK_DGRAM, 0)
+            guard s >= 0 else {
+                let e = errno
+                NSLog("[LanQuery] socket() 失败 POSIX \(e) \(String(cString: strerror(e)))")
+                self.lock.unlock()
+                return
             }
-            l.start(queue: self.queue)
-            self.listener = l
+            var on: Int32 = 1
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, socklen_t(MemoryLayout<Int32>.size))
+            setsockopt(s, SOL_SOCKET, SO_BROADCAST, &on, socklen_t(MemoryLayout<Int32>.size))
+            var tv = timeval(tv_sec: 0, tv_usec: 300_000)
+            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+            var a = sockaddr_in()
+            a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            a.sin_family = sa_family_t(AF_INET)
+            a.sin_port = LanProto.queryPort.bigEndian
+            a.sin_addr.s_addr = 0
+            let bound = withUnsafePointer(to: &a) { p in
+                p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bound == 0 else {
+                let e = errno
+                NSLog("[LanQuery] bind \(LanProto.queryPort) 失败 POSIX \(e) \(String(cString: strerror(e)))")
+                close(s)
+                self.lock.unlock()
+                return
+            }
+            self.fd = s
+            self.running = true
+            self.lock.unlock()
+            NSLog("[LanQuery] UDP 应答器已监听 %d", Int(LanProto.queryPort))
+
+            var buffer = [UInt8](repeating: 0, count: 2048)
+            while true {
+                self.lock.lock()
+                let alive = self.running
+                self.lock.unlock()
+                if !alive { break }
+                var from = sockaddr_in()
+                var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+                let n: Int = buffer.withUnsafeMutableBytes { raw in
+                    withUnsafeMutablePointer(to: &from) { fp in
+                        fp.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                            recvfrom(s, raw.baseAddress, raw.count, 0, sa, &len)
+                        }
+                    }
+                }
+                if n <= 0 { continue }
+                let body = Data(buffer[0..<n])
+                guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+                      (obj["t"] as? String) == LanProto.roomQueryType else { continue }
+
+                self.lock.lock()
+                let room = self.room, game = self.game, iid = self.iid
+                let port = self.port, addr = self.addr
+                self.lock.unlock()
+                let requested = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
+                guard requested == room, port > 0 else { continue }
+
+                let reply: [String: Any] = [
+                    "t": LanProto.roomReplyType,
+                    "room": room,
+                    "game": game,
+                    "port": Int(port),
+                    "addr": addr,
+                    "iid": iid,
+                    "v": LanProto.version
+                ]
+                guard let out = try? JSONSerialization.data(withJSONObject: reply) else { continue }
+                _ = out.withUnsafeBytes { raw in
+                    withUnsafePointer(to: &from) { fp in
+                        fp.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                            sendto(s, raw.baseAddress, raw.count, 0, sa, len)
+                        }
+                    }
+                }
+            }
+            close(s)
         }
     }
 
     func stop() {
-        queue.async { [weak self] in
-            self?.listener?.cancel()
-            self?.listener = nil
-        }
-    }
-
-    private func handle(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        connection.receiveMessage { [weak self, weak connection] data, _, _, _ in
-            guard let self, let connection else { return }
-            defer { connection.cancel() }
-            guard let data,
-                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  (obj["t"] as? String) == LanProto.roomQueryType else { return }
-
-            self.lock.lock()
-            let room = self.room, game = self.game, iid = self.iid
-            let port = self.port, addr = self.addr
-            self.lock.unlock()
-
-            let requested = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
-            guard requested == room, port > 0 else { return }
-
-            let reply: [String: Any] = [
-                "t": LanProto.roomReplyType,
-                "room": room,
-                "game": game,
-                "port": Int(port),
-                "addr": addr,
-                "iid": iid,
-                "v": LanProto.version
-            ]
-            guard let out = try? JSONSerialization.data(withJSONObject: reply) else { return }
-            connection.send(content: out, completion: .contentProcessed { _ in })
-        }
+        lock.lock()
+        running = false
+        let s = fd
+        fd = -1
+        lock.unlock()
+        // 只 shutdown 唤醒阻塞中的 recvfrom，真正的 close 由读取循环退出时执行，避免 double close
+        if s >= 0 { shutdown(s, SHUT_RDWR) }
     }
 }
 
-/// App 内端口自检：逐个尝试真实 bind，把 NWError 原样输出。
-/// 「11 个端口都被占用」这种结论必须靠实测数据判断，而不是猜。
+/// App 内端口自检：用 BSD bind 直接问内核，把 errno 原样输出。
+/// 上一版用 NWListener 做探针，14 个端口全部返回 POSIX 22(EINVAL)，
+/// 那是 Network.framework 的监听器状态问题，不是端口真实可用性。
 enum LanPortProbe {
     static func report(timeout: TimeInterval = 0.8) async -> String {
         var lines: [String] = []
@@ -168,73 +233,45 @@ enum LanPortProbe {
         let ports: [UInt16] = [0] + LanProto.portCandidates + [49152, 55555]
         var okCount = 0
         for port in ports {
-            let result = await probe(port: port, timeout: timeout)
+            let result = probe(port: port)
             if result.ok { okCount += 1 }
             lines.append("\(port == 0 ? "系统分配" : "\(port)")：\(result.text)")
         }
-        lines.append("可用 \(okCount)/\(ports.count)（TCP / NWListener）")
+        lines.append("可用 \(okCount)/\(ports.count)（TCP bind 实测）")
+        lines.append("说明：bind 成功只代表内核允许占用该端口；能否被同网段访问还取决于 Wi-Fi 与本地网络权限。")
         return lines.joined(separator: "\n")
     }
 
-    private static func probe(port: UInt16, timeout: TimeInterval) async -> (ok: Bool, text: String) {
-        await withCheckedContinuation { continuation in
-            let queue = DispatchQueue(label: "qingyi.portprobe")
-            let params = NWParameters.tcp
-            params.allowLocalEndpointReuse = true
-            let endpoint: NWEndpoint.Port
-            if port == 0 {
-                endpoint = .any
-            } else if let value = NWEndpoint.Port(rawValue: port) {
-                endpoint = value
-            } else {
-                continuation.resume(returning: (false, "端口值非法"))
-                return
-            }
-            guard let listener = try? NWListener(using: params, on: endpoint) else {
-                continuation.resume(returning: (false, "NWListener 创建失败"))
-                return
-            }
-            var finished = false
-            listener.stateUpdateHandler = { state in
-                guard !finished else { return }
-                switch state {
-                case .ready:
-                    finished = true
-                    let actual = listener.port?.rawValue ?? 0
-                    listener.cancel()
-                    continuation.resume(returning: (true, "可监听（实际端口 \(actual)）"))
-                case .failed(let error):
-                    finished = true
-                    listener.cancel()
-                    continuation.resume(returning: (false, describe(error)))
-                case .waiting(let error):
-                    // waiting 说明 bind 暂时被拒；交给超时兜底，同时保留错误码
-                    print("[PortProbe] \(port) waiting: \(describe(error))")
-                default:
-                    break
-                }
-            }
-            listener.start(queue: queue)
-            queue.asyncAfter(deadline: .now() + timeout) {
-                guard !finished else { return }
-                finished = true
-                listener.cancel()
-                continuation.resume(returning: (false, "超时未 ready"))
+    /// 直接 bind 0.0.0.0:port 后立刻关闭；不设置 SO_REUSEADDR，确保能暴露“已被占用”。
+    private static func probe(port: UInt16) -> (ok: Bool, text: String) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            let e = errno
+            return (false, "socket() POSIX \(e) \(String(cString: strerror(e)))")
+        }
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = 0
+        let bound = withUnsafePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-    }
-
-    private static func describe(_ error: NWError) -> String {
-        switch error {
-        case .posix(let code):
-            return "POSIX \(code.rawValue) \(String(cString: strerror(code.rawValue)))"
-        case .dns(let code):
-            return "DNS \(code)"
-        case .tls(let status):
-            return "TLS \(status)"
-        @unknown default:
-            return "\(error)"
+        guard bound == 0 else {
+            let e = errno
+            return (false, "POSIX \(e) \(String(cString: strerror(e)))")
         }
+        var actual = addr
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &actual) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &len)
+            }
+        }
+        return (true, "可监听（实际端口 \(UInt16(bigEndian: actual.sin_port))）")
     }
 }
 

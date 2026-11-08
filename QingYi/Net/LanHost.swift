@@ -211,6 +211,7 @@ final class LanHost {
             text = "NWListener 创建失败（无 NWError）"
         }
         let line = "\(currentCandidate == 0 ? "系统分配端口" : "端口 \(currentCandidate)")：\(text)"
+        NSLog("[LanHost] %@", line)
         if !lastErrors.contains(line) { lastErrors.append(line) }
     }
 

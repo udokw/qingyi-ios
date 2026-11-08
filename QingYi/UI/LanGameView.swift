@@ -256,6 +256,21 @@ struct LanGameView: View {
 
     private var controls: some View {
         VStack(spacing: 10) {
+            if game == .go && hub.scorePending {
+                VStack(spacing: 8) {
+                    Text(hub.isHost
+                         ? "双方各停一手，请确认数子结果"
+                         : "双方各停一手，等待房主确认数子")
+                        .font(.system(size: 12))
+                        .foregroundColor(theme.sub)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    if hub.isHost {
+                        ThemedActionButton(title: "确认数子", theme: theme) {
+                            hub.confirmScore()
+                        }
+                    }
+                }
+            }
             HStack(spacing: 10) {
                 if game == .go {
                     ThemedActionButton(title: "停一手", theme: theme) {
@@ -270,7 +285,7 @@ struct LanGameView: View {
                 }
             }
             HStack(spacing: 10) {
-                if game == .go, hub.isHost {
+                if game == .go, hub.isHost, !hub.scorePending {
                     ThemedActionButton(title: "数子", theme: theme) {
                         hub.requestScore()
                     }

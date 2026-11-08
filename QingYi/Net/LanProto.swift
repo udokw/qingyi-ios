@@ -309,6 +309,8 @@ enum LanMsg {
     static let probe = "probe"
     static let probeAck = "probe_ack"
     static let gameOver = "game_over"
+    /// 双方连续各停一手后进入「数子待确认」，由房主确认后才发 game_over
+    static let scorePending = "score_pending"
     static let bye = "bye"
 
     static let eGameMismatch = "E_GAME_MISMATCH"

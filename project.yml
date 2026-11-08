@@ -189,8 +189,8 @@ targets:
           - "-lz"
         PRODUCT_BUNDLE_IDENTIFIER: com.qingyi.app
         PRODUCT_NAME: QingYi
-        MARKETING_VERSION: "1.0.5"
-        CURRENT_PROJECT_VERSION: "6"
+        MARKETING_VERSION: "1.0.6"
+        CURRENT_PROJECT_VERSION: "7"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

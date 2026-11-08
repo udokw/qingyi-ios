@@ -668,6 +668,8 @@ final class LanHub: ObservableObject {
     @Published private(set) var pendingMove = false
     /// 房主侧是否有客机接入（主线程镜像，避免跨队列读取 LanHost 内部状态）
     @Published private(set) var guestPresent = false
+    /// 围棋双方连续各停一手后为 true：只进入数子确认，不直接终局
+    @Published private(set) var scorePending = false
     @Published private(set) var resultCode = ""
     @Published private(set) var resultDetail = ""
     @Published private(set) var resultReason = ""
@@ -692,6 +694,8 @@ final class LanHub: ObservableObject {
     private var pendingUndoFrom: String?
     private var pendingUndoCount = 1
     private var outgoingUndo = false
+    /// 待房主确认的数子结果
+    private var pendingScore: [String: Any]?
 
     private var ticker: Timer?
     private var linkTimer: Timer?
@@ -716,7 +720,7 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.5"
+    private let appVersion = "1.0.6"
 
     private init() {}
 
@@ -800,6 +804,8 @@ final class LanHub: ObservableObject {
         self.byoYomiSec = max(0, byoYomiSec)
         self.periods = max(1, periods)
         self.hintsEnabled = hints
+        scorePending = false
+        pendingScore = nil
 
         let newSession = LanGameSession(room: roomCode, game: gameId)
         newSession.reset(komi: gameId == LanProto.goGame ? LanProto.goKomi : 0)
@@ -1064,6 +1070,8 @@ final class LanHub: ObservableObject {
     func startGame() {
         guard isHost, state == .lobby, hasGuest, let newSession = session, let newHost = host else { return }
         newSession.reset(komi: gameId == LanProto.goGame ? LanProto.goKomi : 0)
+        scorePending = false
+        pendingScore = nil
         clock = LanClock(mainSec: mainSec, byoYomiSec: byoYomiSec, periods: periods)
         let timed = clock?.active ?? false
         if timed {
@@ -1117,7 +1125,7 @@ final class LanHub: ObservableObject {
     }
 
     func requestPass() -> Bool {
-        guard state == .playing, gameId == LanProto.goGame else { return false }
+        guard state == .playing, !scorePending, gameId == LanProto.goGame else { return false }
         return submitMove(["pass": true, "x": -1, "y": -1])
     }
 
@@ -1130,6 +1138,10 @@ final class LanHub: ObservableObject {
     private func submitMove(_ move: [String: Any]) -> Bool {
         if linkDown {
             notice = "连接中断，正在重连，请稍候…"
+            return false
+        }
+        if scorePending {
+            notice = "已进入数子确认，等待房主确认"
             return false
         }
         guard let session else { return false }
@@ -1202,8 +1214,37 @@ final class LanHub: ObservableObject {
             return
         }
         if session.supportsScore(), session.consecutivePasses >= 2 {
-            hostFinishPayload(session.scoreResult())
+            // 连续两次停一手只进入数子确认，避免「双方各停一手就立刻判终局」
+            hostScorePending(session.scoreResult())
         }
+    }
+
+    /// 双方连续各停一手：把数子结果发给双方预览，等待房主确认后才真正结束。
+    private func hostScorePending(_ res: [String: Any]?) {
+        guard let res, let session, !scorePending else { return }
+        pendingScore = res
+        scorePending = true
+        resultCode = LanProto.string(res, "result")
+        resultDetail = LanProto.string(res, "detail", "双方各停一手")
+        resultReason = LanProto.string(res, "reason")
+        notice = "双方各停一手，请房主确认数子结果"
+        var payload: [String: Any] = [
+            "game": session.game,
+            "moveNo": session.moveNo,
+            "komi": session.komi
+        ]
+        for (key, value) in res { payload[key] = value }
+        host?.send(LanProto.message(LanMsg.scorePending, room: roomCode, from: "host", payload: payload))
+        boardVersion += 1
+        clockTick += 1
+    }
+
+    /// 房主确认数子后才广播 game_over。
+    func confirmScore() {
+        guard isHost, scorePending, let res = pendingScore else { return }
+        scorePending = false
+        pendingScore = nil
+        hostFinishPayload(res)
     }
 
     // MARK: - 悔棋
@@ -1266,6 +1307,11 @@ final class LanHub: ObservableObject {
 
     func requestScore() {
         guard state == .playing, let session else { return }
+        if scorePending {
+            // 待确认阶段点「数子」等于房主确认
+            confirmScore()
+            return
+        }
         guard session.supportsScore() else {
             notice = "该棋种按规则自动判定胜负"
             return
@@ -1292,6 +1338,8 @@ final class LanHub: ObservableObject {
         guard let res, let session else { return }
         cancelGrace()
         stopLinkWatch()
+        scorePending = false
+        pendingScore = nil
         resultCode = LanProto.string(res, "result")
         resultDetail = LanProto.string(res, "detail", "对局结束")
         resultReason = LanProto.string(res, "reason")
@@ -1374,6 +1422,8 @@ final class LanHub: ObservableObject {
             myColor = newSession.seatFromChar(LanProto.string(p, "yourColor", "W"))
             opponentName = LanProto.string(p, "opponentName", "对手")
             hintsEnabled = LanProto.bool(p, "hints", true)
+            scorePending = false
+            pendingScore = nil
             if let code = p["room"] as? String, !code.isEmpty { roomCode = code }
             state = .lobby
             boardVersion += 1
@@ -1396,6 +1446,8 @@ final class LanHub: ObservableObject {
             gameId = session?.game ?? game
             session?.size = LanProto.int(p, "size", session?.size ?? boardSize)
             session?.reset(komi: komi)
+            scorePending = false
+            pendingScore = nil
             // 房间规则由房主下发，客机只读
             hintsEnabled = LanProto.bool(p, "hints", hintsEnabled)
             if let tc = p["timeControl"] as? [String: Any] {
@@ -1409,6 +1461,8 @@ final class LanHub: ObservableObject {
             if mainSec > 0 { startTicker() } else { stopTicker() }
             lastRecvAt = LanProto.uptimeMs()
             lastPingAt = 0
+            scorePending = false
+            pendingScore = nil
             startLinkWatch()
             boardVersion += 1
             clockTick += 1
@@ -1449,7 +1503,18 @@ final class LanHub: ObservableObject {
             clockFrozen = false
             clockTick += 1
 
+        case LanMsg.scorePending:
+            resultCode = LanProto.string(p, "result")
+            resultDetail = LanProto.string(p, "detail", "双方各停一手")
+            resultReason = LanProto.string(p, "reason")
+            scorePending = true
+            notice = "双方各停一手，等待房主确认数子"
+            boardVersion += 1
+            clockTick += 1
+
         case LanMsg.gameOver:
+            scorePending = false
+            pendingScore = nil
             resultCode = LanProto.string(p, "result")
             resultDetail = LanProto.string(p, "detail", "对局结束")
             resultReason = LanProto.string(p, "reason")
@@ -1622,8 +1687,21 @@ final class LanHub: ObservableObject {
         }
     }
 
-    /// 终局提示音（当前只有落子/将军两个音频资源，结束沿用将军音）。
+    /// 终局音效：象棋沿用提示音；围棋按胜负方分别播放喝彩/收束音。
     private func playGameOverSound() {
+        // 围棋按座位区分胜负：赢家喝彩音，输家收束音；不再复用象棋将军音。
+        if gameId == LanProto.goGame {
+            let won: Bool?
+            if resultCode.hasPrefix("B+") { won = myColor == 1 }
+            else if resultCode.hasPrefix("W+") { won = myColor == 2 }
+            else { won = nil }
+            switch won {
+            case .some(true): SoundPlayer.shared.playWin()
+            case .some(false): SoundPlayer.shared.playLose()
+            case .none: SoundPlayer.shared.playLose()
+            }
+            return
+        }
         SoundPlayer.shared.playCheck()
     }
 
@@ -1954,6 +2032,8 @@ final class LanHub: ObservableObject {
         appInBackground = false
         attemptSeq += 1
         joinCloseReason = "已停止"
+        scorePending = false
+        pendingScore = nil
 
         host?.stop()
         client?.close()
