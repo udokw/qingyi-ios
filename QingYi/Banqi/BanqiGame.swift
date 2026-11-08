@@ -765,11 +765,11 @@ final class BanqiGame {
             return
         }
         let current = positionKeys.last ?? ""
-        var repeat = 0
+        var repeatCount = 0
         for key in positionKeys where key == current {
-            repeat += 1
+            repeatCount += 1
         }
-        if repeat >= BanqiGame.repeatDrawCount {
+        if repeatCount >= BanqiGame.repeatDrawCount {
             resultValue = BanqiGame.resultDraw
             endReasonValue = "同一局面出现三次，判和"
             endReasonKindValue = .repeatDraw

@@ -12,7 +12,7 @@ final class BanqiGameModel: ObservableObject {
     @Published private(set) var faceUp: [[Bool]] = []
     @Published var selection: GoPoint?
     @Published private(set) var legalTargets: [GoPoint] = []
-    @Published private(set) var alert: GameAlert?
+    @Published var alert: GameAlert?
     @Published private(set) var transientStatus: String?
     @Published private(set) var thinking = false
     @Published private(set) var level: Int
