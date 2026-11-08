@@ -163,7 +163,9 @@ final class LanQueryResponder {
                     bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
-            guard bound == 0 else {
+            // 注意：这里不能用 guard —— 失败分支不再退出，
+            // 而是保留 socket 继续发通告（guard 的 else 必须跳出作用域）。
+            if bound != 0 {
                 let e = errno
                 NSLog("[LanQuery] bind \(LanProto.queryPort) 失败 POSIX \(e) \(String(cString: strerror(e)))")
                 // 收不到广播时不能让房主变成「完全不可被发现」：
