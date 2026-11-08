@@ -801,7 +801,7 @@ final class LanHub: ObservableObject {
         let udp = LanUdpDiscovery()
         udp.gameFilter = game
         udp.onRooms = { [weak d] list in
-            NSLog("[发现] UDP 通道 %d 个房间", list.count)
+            NSLog("[发现] UDP 通道 \(list.count) 个房间")
             d?.ingest(list)
         }
         udpDiscovery = udp

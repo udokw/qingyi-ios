@@ -369,7 +369,6 @@ final class LanUdpDiscovery {
                 let now = LanProto.uptimeMs()
                 if now - self.lastQuery >= 1_500 {
                     self.lastQuery = now
-                    self.queryCount += 1
                     let payload: [String: Any] = [
                         "t": LanProto.roomQueryType,
                         "room": "",
@@ -433,9 +432,8 @@ final class LanUdpDiscovery {
         let now = LanProto.uptimeMs()
         let key = iid.isEmpty ? "\(code)@\(host):\(port)" : iid
 
-        receiveCount += 1
         if rooms[key] == nil {
-            NSLog("[LanUDP] 收到 %@：房号 %@ %@ %@:%d", type, code, game, host, Int(port))
+            NSLog("[LanUDP] 收到 \(type)：房号 \(code) \(game) \(host):\(port)")
         }
         rooms[key] = LanRoom(name: name,
                              code: code,
