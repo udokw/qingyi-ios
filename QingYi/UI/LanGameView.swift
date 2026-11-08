@@ -39,56 +39,65 @@ struct LanGameView: View {
     }
 
     var body: some View {
-        ZStack {
-            PaperBackground(theme: theme)
+        GeometryReader { proxy in
+            // 棋盘边长与单机页同一套计算：屏宽 − 左右留白（GameLayout.columnInset）。
+            // 这里显式钉住宽度，动作行即使被撑高也不会再把棋盘挤小。
+            let boardSide = GameLayout.boardSide(availableWidth: proxy.size.width)
+            ZStack {
+                PaperBackground(theme: theme)
 
-            VStack(spacing: 0) {
-                headerRow
-                    .padding(.horizontal, 6)
-                    .padding(.top, 2)
+                VStack(spacing: 0) {
+                    headerRow
+                        .padding(.horizontal, GameLayout.columnInset)
+                        .padding(.top, 2)
 
-                ruleRow
-                    .padding(.horizontal, 6)
-                    .padding(.top, 10)
+                    ruleRow
+                        .padding(.horizontal, GameLayout.columnInset)
+                        .padding(.top, 10)
 
-                Hairline(color: lineColor)
-                    .padding(.top, 8)
+                    Hairline(color: lineColor)
+                        .padding(.top, 8)
 
-                clockRow
-                    .padding(.horizontal, 6)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                    clockRow
+                        .padding(.horizontal, GameLayout.columnInset)
+                        .padding(.top, 6)
+                        .padding(.bottom, 4)
 
-                boardArea
-                    .padding(.horizontal, 6)
-                    .padding(.top, 4)
-
-                stateLine
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-
-                if hub.linkDown && hub.state == .playing {
-                    Text("连接中断，正在重连…（计时已暂停，\(LanProto.reconnectGraceMs / 1000) 秒内未恢复将判负）")
-                        .font(.system(size: 11))
-                        .foregroundColor(theme.dangerText)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 12)
+                    boardArea
+                        .frame(maxWidth: boardSide)
+                        .padding(.horizontal, GameLayout.columnInset)
                         .padding(.top, 4)
+
+                    stateLine
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+
+                    if hub.linkDown && hub.state == .playing {
+                        Text("连接中断，正在重连…（计时已暂停，\(LanProto.reconnectGraceMs / 1000) 秒内未恢复将判负）")
+                            .font(.system(size: 11))
+                            .foregroundColor(theme.dangerText)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 4)
+                    }
+
+                    // 棋盘底边 → 动作区顶边与单机页一致：
+                    // 围棋 8(状态行上距)+16(状态行)+16 = 40；象棋同理 50。
+                    controls
+                        .padding(.top, game == .go ? 16 : 26)
+
+                    Spacer(minLength: 8)
+
+                    footer
+                        .padding(.top, 8)
+                        .padding(.bottom, 6)
                 }
+                .padding(.top, 4)
 
-                Spacer(minLength: 8)
-
-                controls
-
-                footer
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-            }
-            .padding(.top, 4)
-
-            if hub.state == .finished {
-                resultOverlay
+                if hub.state == .finished {
+                    resultOverlay
+                }
             }
         }
         .alert(item: $prompt) { item in
@@ -118,61 +127,76 @@ struct LanGameView: View {
         }
     }
 
-    // MARK: - 页头（三列 + 朱红「联」）
+    // MARK: - 页头（中间两行整屏居中 + 左右浮层）
 
+    /// 左侧「我执X」与右侧「联」徽章/状态都是**定宽浮层**：
+    /// 它们不参与中间两行的宽度计算，右侧文案从 2 个字变到 8 个字，
+    /// 中间两行的位置也完全不动（ZStack + 对称侧边留白 = 相对整屏居中）。
     private var headerRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            Text("我执\(hub.myColorName())")
-                .font(.system(size: 17))
-                .foregroundColor(theme.title)
-                .lineLimit(1)
-                .layoutPriority(1)
-
-            Spacer(minLength: 4)
-
+        ZStack {
             VStack(spacing: 2) {
                 Text("\(LanProto.gameName(gameIdText)) · 房号 \(hub.roomCode)")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(theme.title)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Text("我执\(hub.myColorName()) · 对手 \(hub.opponentName)")
                     .font(.system(size: 11))
                     .foregroundColor(theme.sub)
                     .lineLimit(1)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-
-            Spacer(minLength: 4)
-
-            // 效果图里「联」徽章在右上角单独一行，状态文字在它下面
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("联")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 18, height: 18)
-                    .background(
-                        RoundedRectangle(cornerRadius: theme.isHara ? 2 : 5)
-                            .fill(theme.accent)
-                    )
-
-                Text(statusText)
-                    .font(.system(size: 15))
-                    .foregroundColor(hub.linkDown && hub.state == .playing ? theme.dangerText : theme.title)
-                    .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .layoutPriority(1)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, alignment: .center)
+            // 左右各留出侧栏宽度，保证中间文字不会压到两侧浮层上
+            .padding(.horizontal, Self.headerSideReserve)
+
+            HStack(alignment: .bottom, spacing: 0) {
+                Text("我执\(hub.myColorName())")
+                    .font(.system(size: 17))
+                    .foregroundColor(theme.title)
+                    .lineLimit(1)
+                    .frame(width: Self.headerLeftWidth, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                // 效果图里「联」徽章在右上角单独一行，状态文字在它下面
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("联")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 18, height: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: theme.isHara ? 2 : 5)
+                                .fill(theme.accent)
+                        )
+
+                    Text(statusText)
+                        .font(.system(size: 15))
+                        .foregroundColor(hub.linkDown && hub.state == .playing ? theme.dangerText : theme.title)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .truncationMode(.tail)
+                        .frame(width: Self.headerRightWidth, alignment: .trailing)
+                }
             }
         }
     }
+
+    /// 左右侧栏的固定宽度（不随文案长度变化）
+    private static let headerLeftWidth: CGFloat = 64
+    private static let headerRightWidth: CGFloat = 76
+    private static let headerSideReserve: CGFloat = 78
 
     private var gameIdText: String { hub.gameId.isEmpty ? (game == .go ? LanProto.goGame : LanProto.xiangqiGame) : hub.gameId }
 
     private var statusText: String {
         if hub.state == .finished { return "对局结束" }
-        if hub.state != .playing { return "等待连接…" }
+        if hub.state != .playing { return "等待连接" }
         if hub.linkDown { return "重连中…" }
-        if hub.scorePending { return hub.isHost ? "点「确认数子」" : "等待房主确认" }
-        if hub.isMyTurn { return hub.pendingMove ? "已发送 · 等待确认" : "轮到你落子" }
+        // 右侧列定宽 76pt：文案控制在 6 个字以内，超长才走省略号
+        if hub.scorePending { return hub.isHost ? "确认数子" : "等待确认" }
+        if hub.isMyTurn { return hub.pendingMove ? "已发送…" : "轮到你落子" }
         return "等待对手落子"
     }
 
@@ -400,7 +424,9 @@ struct LanGameView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
+                // 行高与单机页同一常量：不再靠 maxHeight: .infinity 吃剩余空间，
+                // 否则两行会被撑到 ~112pt 以上，把棋盘压小。
+                .frame(height: GameLayout.actionRowHeight)
                 Hairline(color: lineColor)
             }
         }
@@ -408,23 +434,9 @@ struct LanGameView: View {
 
     private func gridCell(_ item: ActionItem) -> some View {
         Button(action: item.run) {
-            VStack(spacing: 2) {
-                Text(item.title)
-                    .font(.system(size: 15, weight: item.primary ? .semibold : .regular))
-                    .foregroundColor(item.danger ? theme.dangerText
-                                     : (item.primary ? theme.accent : theme.title))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                if !item.en.isEmpty {
-                    Text(item.en)
-                        .font(.system(size: 9))
-                        .tracking(0.8)
-                        .foregroundColor(theme.sub)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+            GameActionCell(title: item.title, en: item.en,
+                           danger: item.danger, primary: item.primary,
+                           theme: theme)
         }
         .buttonStyle(.plain)
     }

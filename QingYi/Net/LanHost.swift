@@ -18,6 +18,8 @@ final class LanHost {
     private let queue = DispatchQueue(label: "qingyi.lan.host")
     private var listener: NWListener?
     private var netServices: [NetService] = []
+    /// NetService 的 delegate 是 weak，必须由房主持有一份，否则公告结果回调收不到
+    private let serviceDelegate = LanServiceDelegate()
     private var port: UInt16 = 0
     private var addr = ""
     private var guest: LanConnection?
@@ -234,6 +236,11 @@ final class LanHost {
 
     /// Bonjour 公告。端口由系统分配时只有 ready 之后才知道真实端口，
     /// 所以统一在这里用 NetService 同时公告统一类型与棋种专用类型。
+    ///
+    /// 关键：NetService 必须 `schedule(in:forMode:)` 之后 `publish()` 才会真正广告。
+    /// 之前漏了这一句，iOS 当房主时 Bonjour 公告是**静默失败**的（没有任何回调），
+    /// 而 iOS 当客机走的是 NWBrowser，不需要 NetService，于是出现「安卓建房 iOS 能搜到、
+    /// iOS 建房安卓搜不到」的单向故障。现在补上 schedule + delegate，失败也能看到日志。
     private func publishServices() {
         let value = port
         guard value > 0 else { return }
@@ -241,13 +248,20 @@ final class LanHost {
                      gameId == LanProto.xiangqiGame ? "_qingyi-xiangqi._tcp." : "_qingyi-go._tcp."]
         let name = serviceName
         let txt = LanProto.txtData(txtDict(port: value))
+        NSLog("[LanHost] 公告 Bonjour port=%d addr=%@ types=%@ txt=%@",
+              Int(value), self.addr, types.joined(separator: ","), txtDict(port: value).description)
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.stopped else { return }
-            for service in self.netServices { service.stop() }
+            for service in self.netServices {
+                service.remove(from: .main, forMode: .common)
+                service.stop()
+            }
             self.netServices.removeAll()
             for type in types {
                 let service = NetService(domain: "local.", type: type, name: name, port: Int32(value))
                 service.setTXTRecord(txt)
+                service.delegate = self.serviceDelegate
+                service.schedule(in: .main, forMode: .common)
                 service.publish()
                 self.netServices.append(service)
             }
@@ -355,9 +369,30 @@ final class LanHost {
             let services = self.netServices
             self.netServices.removeAll()
             DispatchQueue.main.async {
-                for service in services { service.stop() }
+                for service in services {
+                    service.remove(from: .main, forMode: .common)
+                    service.stop()
+                }
                 completion?()
             }
         }
+    }
+}
+
+/// Bonjour 公告结果必须可见：没有 delegate 时 `publish()` 失败是完全静默的。
+final class LanServiceDelegate: NSObject, NetServiceDelegate {
+    func netServiceDidPublish(_ sender: NetService) {
+        NSLog("[LanHost] Bonjour 已公告 type=%@ name=%@ port=%d",
+              sender.type, sender.name, Int(sender.port))
+    }
+
+    func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
+        NSLog("[LanHost] Bonjour 公告失败 type=%@ name=%@ error=%@",
+              sender.type, sender.name,
+              String(describing: errorDict[NetService.errorCode]))
+    }
+
+    func netServiceDidStop(_ sender: NetService) {
+        NSLog("[LanHost] Bonjour 已停止 type=%@ name=%@", sender.type, sender.name)
     }
 }

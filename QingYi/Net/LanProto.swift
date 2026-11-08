@@ -203,9 +203,13 @@ enum LanProto {
 
     // MARK: - 本机地址
 
-    /// 取本机 IPv4（优先 en0/en1，其次任意非回环接口）。取不到返回空串。
+    /// 取本机用于局域网通信的 IPv4。
+    ///
+    /// 之前只排除 lo0，装了 VPN（utun）/ 开了热点（bridge）时可能把虚拟网卡的地址
+    /// 写进 TXT 和 UDP 应答，安卓按那个地址连过来必然失败。现在显式跳过虚拟网卡，
+    /// 优先 en0（Wi-Fi），并把最终选中的网卡名打进日志，便于取证。
     static func localIPv4Address() -> String {
-        var fallback = ""
+        var fallback = ("", "")
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return "" }
         defer { freeifaddrs(ifaddr) }
@@ -215,7 +219,7 @@ enum LanProto {
             let interface = current.pointee
             if let addr = interface.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) {
                 let name = String(cString: interface.ifa_name)
-                if name != "lo0" {
+                if name != "lo0", !isVirtualInterface(name) {
                     var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                     var sockAddr = addr.pointee
                     let result = getnameinfo(&sockAddr, socklen_t(sockAddr.sa_len),
@@ -223,14 +227,25 @@ enum LanProto {
                                              nil, 0, NI_NUMERICHOST)
                     if result == 0 {
                         let ip = String(cString: host)
-                        if name == "en0" || name == "en1" { return ip }
-                        if fallback.isEmpty { fallback = ip }
+                        if name == "en0" || name == "en1" {
+                            NSLog("[LanProto] 本机地址 if=%@ ip=%@", name, ip)
+                            return ip
+                        }
+                        if fallback.0.isEmpty { fallback = (ip, name) }
                     }
                 }
             }
             pointer = interface.ifa_next
         }
-        return fallback
+        NSLog("[LanProto] 本机地址（回退）if=%@ ip=%@", fallback.1, fallback.0)
+        return fallback.0
+    }
+
+    /// 虚拟网卡（VPN / 热点 / P2P / 蜂窝）不能作为房间地址公布给对端。
+    private static func isVirtualInterface(_ name: String) -> Bool {
+        let prefixes = ["utun", "ipsec", "ppp", "tun", "tap",
+                        "awdl", "llw", "bridge", "vmenet", "anpi", "pdp_ip"]
+        return prefixes.contains { name.hasPrefix($0) }
     }
 
     /// 子网定向广播地址（配合 255.255.255.255 一起发，部分路由器只放行其中一种）。

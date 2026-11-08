@@ -63,7 +63,7 @@ struct XiangqiGameView: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, GameLayout.columnInset)
             .padding(.top, 4)
             .padding(.bottom, 14)
         }
@@ -188,7 +188,7 @@ struct XiangqiGameView: View {
                             if model.mode == .ai { model.restart() } else { model.agreeDraw() }
                         }
                     }
-                    .frame(height: 56)
+                    .frame(height: GameLayout.actionRowHeight)
                     Hairline(color: theme.divider)
                 }
             } else {
@@ -199,7 +199,7 @@ struct XiangqiGameView: View {
                         if model.mode == .ai { model.restart() } else { model.agreeDraw() }
                     }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, GameLayout.columnInset)
             }
         }
     }
@@ -214,7 +214,7 @@ struct XiangqiGameView: View {
                         verticalDivider
                         gridButton("下一步 ▶", "NEXT", selected: true) { model.reviewStep(1) }
                     }
-                    .frame(height: 56)
+                    .frame(height: GameLayout.actionRowHeight)
                     Hairline(color: theme.divider)
                 }
             } else {
@@ -222,7 +222,7 @@ struct XiangqiGameView: View {
                     pill("◀ 上一步") { model.reviewStep(-1) }
                     pill("下一步 ▶", primary: true) { model.reviewStep(1) }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, GameLayout.columnInset)
             }
         }
     }
@@ -237,18 +237,8 @@ struct XiangqiGameView: View {
                             danger: Bool = false, selected: Bool = false,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15))
-                    .foregroundColor(danger ? theme.dangerText : (selected ? theme.primaryText : theme.title))
-                Text(en)
-                    .font(.system(size: 9))
-                    .tracking(1)
-                    .foregroundColor(selected ? theme.primaryText.opacity(0.7) : theme.sub)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(selected ? theme.primaryBg : Color.clear)
-            .contentShape(Rectangle())
+            GameActionCell(title: title, en: en, danger: danger,
+                           selected: selected, theme: theme)
         }
         .buttonStyle(.plain)
     }

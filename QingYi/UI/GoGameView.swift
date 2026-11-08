@@ -59,7 +59,7 @@ struct GoGameView: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, theme.isHara ? 6 : 6)
+            .padding(.horizontal, GameLayout.columnInset)
             .padding(.top, 4)
             .padding(.bottom, 14)
         }
@@ -193,7 +193,7 @@ struct GoGameView: View {
                         verticalDivider
                         gridButton("形势", "SCORE EST.") { model.estimate() }
                     }
-                    .frame(height: 56)
+                    .frame(height: GameLayout.actionRowHeight)
                     Hairline(color: theme.divider)
                     HStack(spacing: 0) {
                         gridButton("数子", "COUNT") { model.countScore() }
@@ -202,7 +202,7 @@ struct GoGameView: View {
                         verticalDivider
                         gridButton("存谱", "SAVE SGF") { model.save() }
                     }
-                    .frame(height: 56)
+                    .frame(height: GameLayout.actionRowHeight)
                     Hairline(color: theme.divider)
                 }
             } else {
@@ -233,7 +233,7 @@ struct GoGameView: View {
                         verticalDivider
                         gridButton("下一手 ▶", "NEXT", selected: true) { model.reviewStep(1) }
                     }
-                    .frame(height: 56)
+                    .frame(height: GameLayout.actionRowHeight)
                     Hairline(color: theme.divider)
                 }
             } else {
@@ -256,18 +256,8 @@ struct GoGameView: View {
                             danger: Bool = false, selected: Bool = false,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15))
-                    .foregroundColor(danger ? theme.dangerText : (selected ? theme.primaryText : theme.title))
-                Text(en)
-                    .font(.system(size: 9))
-                    .tracking(1)
-                    .foregroundColor(selected ? theme.primaryText.opacity(0.7) : theme.sub)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(selected ? theme.primaryBg : Color.clear)
-            .contentShape(Rectangle())
+            GameActionCell(title: title, en: en, danger: danger,
+                           selected: selected, theme: theme)
         }
         .buttonStyle(.plain)
     }

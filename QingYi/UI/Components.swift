@@ -293,3 +293,61 @@ struct PaperBackground: View {
         theme.windowBg.ignoresSafeArea()
     }
 }
+
+// MARK: - 对局页共用版式（单机 / 联机同源）
+
+/// 单机对局页与联机对局页共用的一套尺寸定义。
+///
+/// 棋盘边长、动作行行高、左右留白只在这里写一次：联机页不再另写一组数值，
+/// 单机页的 `frame(height:)` 也改成引用同一个常量，避免两页再次跑偏。
+enum GameLayout {
+    /// 页面左右留白（棋盘左右各 6pt）
+    static let columnInset: CGFloat = 6
+    /// 动作行行高（单机 actionGrid / reviewGrid 与联机动作区共用）
+    static let actionRowHeight: CGFloat = 56
+    /// 象棋棋盘高宽比：9 列 × 10 行 → 高 = 宽 × 10/9
+    static let xiangqiHeightRatio: CGFloat = 10.0 / 9.0
+
+    /// 棋盘边长 = 可用宽度 − 左右留白。
+    /// 单机页正是靠 `padding(.horizontal, columnInset)` 让棋盘拿到这个宽度，
+    /// 联机页用同一个函数显式钉住，两页必然同尺寸。
+    static func boardSide(availableWidth: CGFloat) -> CGFloat {
+        max(0, availableWidth - columnInset * 2)
+    }
+
+    /// 棋盘高度：围棋为正方形，象棋按 10/9 拉高
+    static func boardHeight(side: CGFloat, isXiangqi: Bool) -> CGFloat {
+        isXiangqi ? side * xiangqiHeightRatio : side
+    }
+}
+
+/// 动作格：单机与联机共用同一份字号 / 行距 / 颜色规则。
+struct GameActionCell: View {
+    let title: String
+    let en: String
+    var danger: Bool = false
+    var selected: Bool = false
+    var primary: Bool = false
+    var theme: Theme
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 15, weight: primary ? .semibold : .regular))
+                .foregroundColor(danger ? theme.dangerText
+                                 : (selected ? theme.primaryText : (primary ? theme.accent : theme.title)))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if !en.isEmpty {
+                Text(en)
+                    .font(.system(size: 9))
+                    .tracking(1)
+                    .foregroundColor(selected ? theme.primaryText.opacity(0.7) : theme.sub)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(selected ? theme.primaryBg : Color.clear)
+        .contentShape(Rectangle())
+    }
+}

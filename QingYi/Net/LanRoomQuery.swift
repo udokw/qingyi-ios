@@ -223,9 +223,17 @@ final class LanQueryResponder {
                 let size = self.size, displayName = self.displayName
                 self.lock.unlock()
                 let requested = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
+                let fromHost = LanUdpSend.addrString(from.sin_addr)
+                let fromPort = Int(UInt16(bigEndian: from.sin_port))
+                NSLog("[LanQuery] 收到 room_query room=%@ 来自 %@:%d（本房 %@ game=%@ tcp=%d）",
+                      requested, fromHost, fromPort, room, game, Int(port))
                 // 空房号 = 附近房间列表的广播探测，任何房主都应答；
                 // 非空房号 = 「只填房号」的定向查询，只答匹配的房间。
-                guard requested.isEmpty || requested == room, port > 0 else { continue }
+                guard requested.isEmpty || requested == room, port > 0 else {
+                    NSLog("[LanQuery] 忽略该查询（requested=%@ 本房=%@ tcp=%d）",
+                          requested, room, Int(port))
+                    continue
+                }
 
                 let reply: [String: Any] = [
                     "t": LanProto.roomReplyType,
@@ -239,13 +247,15 @@ final class LanQueryResponder {
                     "v": LanProto.version
                 ]
                 guard let out = try? JSONSerialization.data(withJSONObject: reply) else { continue }
-                _ = out.withUnsafeBytes { raw in
+                let sent: Int = out.withUnsafeBytes { raw in
                     withUnsafePointer(to: &from) { fp in
                         fp.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
                             sendto(s, raw.baseAddress, raw.count, 0, sa, len)
                         }
                     }
                 }
+                NSLog("[LanQuery] 已回 room_reply room=%@ port=%d addr=%@ → %@:%d（%d 字节）",
+                      room, Int(port), addr.isEmpty ? "(空)" : addr, fromHost, fromPort, sent)
             }
             close(s)
         }
