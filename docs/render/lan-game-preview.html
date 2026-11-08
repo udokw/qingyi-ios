@@ -20,7 +20,7 @@
   .hair { height: 0.8px; flex: none; }
 
   /* 页头：中间块绝对居中（left/right 对称 78px），左右浮层定宽，互不参与对方宽度 */
-  .head { position: relative; height: 42px; flex: none; }
+  .head { position: relative; height: 44px; flex: none; }
   .headC { position: absolute; left: 84px; right: 84px; top: 0; text-align: center; }
   .headC .t { font-size: 16px; font-weight: 700; line-height: 21px; }
   .headC .s { font-size: 11px; line-height: 14px; margin-top: 2px; }
@@ -30,7 +30,7 @@
            display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
   .seal { width: 18px; height: 18px; color: #fff; font-size: 9px; font-weight: 600;
           display: flex; align-items: center; justify-content: center; }
-  .status { width: 76px; text-align: right; font-size: 15px; line-height: 20px;
+  .status { width: 76px; height: 20px; text-align: right; font-size: 15px; line-height: 20px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .rule { font-size: 12px; line-height: 16px; text-align: center; padding: 10px 6px 0 6px; flex: none; }
@@ -42,7 +42,7 @@
   .board { margin: 4px 6px 0 6px; aspect-ratio: 1 / 1; position: relative; flex: none; }
   .board.xq { aspect-ratio: 9 / 10; }
 
-  .stateline { font-size: 12px; line-height: 16px; text-align: center; padding: 8px 8px 0 8px; flex: none; }
+  .stateline { font-size: 12px; line-height: 16px; height: 16px; text-align: center; padding: 14px 8px 0 8px; flex: none; }
   .spacer { flex: 1; min-height: 8px; }
 
   /* 动作行：固定 56px 高，与 GameLayout.actionRowHeight 一致 */
@@ -65,6 +65,7 @@ const params = new URLSearchParams(location.search);
 const id = params.get("theme") === "monument" ? "monument" : "hara";
 const game = params.get("game") === "xiangqi" ? "xiangqi" : "go";
 const statusText = params.get("status") || "等待对手落子";
+const simBug = params.get("sim") === "bug";
 const mySide = game === "go" ? "白" : "黑";
 
 const T = id === "hara" ? {
@@ -109,6 +110,18 @@ page.appendChild(head);
   }
   if (el.scrollWidth > 76) el.style.textOverflow = "ellipsis";
 })();
+
+/* 仅用于对照取证：还原「修复前页头高度由内容撑开」的行为（sim=bug）。
+   页头子元素全是绝对定位，height:auto 会塌成 0，所以这里按修复前的算法手算高度：
+   18(徽章) + 2(间距) + 状态行实际行高。 */
+if (simBug) {
+  const el = head.querySelector(".status");
+  const fs = parseFloat(el.style.fontSize || "15");
+  const statusLine = fs >= 15 ? 20 : fs * 1.35;
+  head.style.height = Math.max(37, Math.min(44, 18 + 2 + statusLine)) + "px";
+  el.style.height = "auto";
+  el.style.lineHeight = "normal";
+}
 
 /* ---------- 规则行 ---------- */
 const rule = document.createElement("div");
@@ -170,7 +183,7 @@ const items = game === "go"
   : [["悔棋", "UNDO", ""], ["认输", "RESIGN", T.accent], ["离开", "LEAVE", ""]];
 
 const controls = document.createElement("div");
-controls.style.marginTop = game === "go" ? "16px" : "26px";
+controls.style.marginTop = "22px";
 let grid = `<div class="hair" style="background:${T.divider}"></div>`;
 for (let i = 0; i < items.length; i += 3) {
   grid += `<div class="row">`;

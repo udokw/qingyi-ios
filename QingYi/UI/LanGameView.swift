@@ -70,7 +70,7 @@ struct LanGameView: View {
 
                     stateLine
                         .padding(.horizontal, 8)
-                        .padding(.top, 8)
+                        .padding(.top, Self.boardToStateGap)
 
                     if hub.linkDown && hub.state == .playing {
                         Text("连接中断，正在重连…（计时已暂停，\(LanProto.reconnectGraceMs / 1000) 秒内未恢复将判负）")
@@ -82,10 +82,10 @@ struct LanGameView: View {
                             .padding(.top, 4)
                     }
 
-                    // 棋盘底边 → 动作区顶边与单机页一致：
-                    // 围棋 8(状态行上距)+16(状态行)+16 = 40；象棋同理 50。
+                    // 棋盘底边 → 动作区顶边的总间距：14(状态行上距) + 16(状态行) + 22 = 52，
+                    // 比单机页的 40 更松，避免状态行与按钮贴着棋盘挤成一堆。
                     controls
-                        .padding(.top, game == .go ? 16 : 26)
+                        .padding(.top, Self.stateToControlsGap)
 
                     Spacer(minLength: 8)
 
@@ -177,15 +177,26 @@ struct LanGameView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .truncationMode(.tail)
-                        .frame(width: Self.headerRightWidth, alignment: .trailing)
+                        // 行盒高度写死：文案从 5 字缩到 6 字时字号会自动缩小，
+                        // 若不钉住行盒，右列总高会跟着变，页头高度随之变化 → 棋盘上下抖。
+                        .frame(width: Self.headerRightWidth, height: Self.headerStatusLineHeight, alignment: .trailing)
                 }
             }
         }
+        // 页头整体固定高度：上面任何文字的字号/行数变化都不允许改变这块的高度，
+        // 棋盘顶边的 y 坐标因此只由固定值决定。
+        .frame(height: Self.headerHeight)
     }
 
     /// 左右侧栏的固定宽度（不随文案长度变化）
     private static let headerLeftWidth: CGFloat = 64
     private static let headerRightWidth: CGFloat = 76
+    /// 页头固定高度 + 状态行固定行盒：两者共同保证棋盘顶边不动
+    private static let headerHeight: CGFloat = 44
+    private static let headerStatusLineHeight: CGFloat = 20
+    /// 棋盘底 → 状态行 / 状态行 → 动作区 的固定间距（不随文案或棋种变化）
+    private static let boardToStateGap: CGFloat = 14
+    private static let stateToControlsGap: CGFloat = 22
     private static let headerSideReserve: CGFloat = 78
 
     private var gameIdText: String { hub.gameId.isEmpty ? (game == .go ? LanProto.goGame : LanProto.xiangqiGame) : hub.gameId }
@@ -208,6 +219,8 @@ struct LanGameView: View {
             .foregroundColor(theme.sub)
             .frame(maxWidth: .infinity, alignment: .center)
             .lineLimit(1)
+            // 固定行高：规则文案里的贴目/计时变化不改变这一行的高度
+            .frame(height: 16)
     }
 
     private var ruleText: String {
@@ -336,6 +349,8 @@ struct LanGameView: View {
             .lineLimit(1)
             .truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .center)
+            // 固定行盒：提示文字长短不影响下方按钮的位置
+            .frame(height: 16)
     }
 
     private var stateLineText: String {
