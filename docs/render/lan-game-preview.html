@@ -146,7 +146,7 @@ page.appendChild(sp);
 /* ---------- 通栏动作区 ---------- */
 const items = game === "go"
   ? [["悔棋", "UNDO", ""], ["停一手", "PASS", ""], ["认输", "RESIGN", T.accent],
-     ["数子", "COUNT", ""], ["存谱", "SAVE SGF", ""], ["离开", "LEAVE", ""]]
+     ["数子", "", ""], ["存谱", "SAVE SGF", ""], ["离开", "LEAVE", ""]]
   : [["悔棋", "UNDO", ""], ["认输", "RESIGN", T.accent], ["离开", "LEAVE", ""]];
 
 const controls = document.createElement("div");
@@ -157,7 +157,7 @@ for (let i = 0; i < items.length; i += 3) {
     if (idx > 0) grid += `<div class="vline" style="background:${T.divider}"></div>`;
     grid += `<div class="cell">
       <div class="zh" style="color:${it[2] || T.title}">${it[0]}</div>
-      <div class="en" style="color:${T.sub}">${it[1]}</div>
+      ${it[1] ? `<div class="en" style="color:${T.sub}">${it[1]}</div>` : ""}
     </div>`;
   });
   grid += `</div><div class="hair" style="background:${T.divider}"></div>`;

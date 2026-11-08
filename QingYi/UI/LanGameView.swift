@@ -342,7 +342,7 @@ struct LanGameView: View {
         if game == .go && hub.isHost {
             let confirming = hub.scorePending
             items.append(ActionItem(id: 3, title: confirming ? "确认数子" : "数子",
-                                    en: confirming ? "CONFIRM" : "COUNT",
+                                    en: "",
                                     danger: false, primary: confirming) {
                 if confirming { hub.confirmScore() } else { hub.requestScore() }
             })
@@ -415,11 +415,13 @@ struct LanGameView: View {
                                      : (item.primary ? theme.accent : theme.title))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text(item.en)
-                    .font(.system(size: 9))
-                    .tracking(0.8)
-                    .foregroundColor(theme.sub)
-                    .lineLimit(1)
+                if !item.en.isEmpty {
+                    Text(item.en)
+                        .font(.system(size: 9))
+                        .tracking(0.8)
+                        .foregroundColor(theme.sub)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
