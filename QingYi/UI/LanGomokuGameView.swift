@@ -410,8 +410,20 @@ struct LanGomokuGameView: View {
     private func saveRecord() {
         guard let g = hub.gomokuGame, !g.history.isEmpty else { return }
         do {
-            let url = try GomokuRecord.saveToFile(g, blackName: "黑方", whiteName: "白方",
-                                                  result: hub.state == .finished ? hub.resultText : nil,
+            let me = hub.myColor
+            let mine = "我（\(hub.myColorName())）"
+            let blackName = me == GomokuGame.black ? mine : hub.opponentName
+            let whiteName = me == GomokuGame.white ? mine : hub.opponentName
+            var result = hub.resultCode
+            if result.isEmpty {
+                if g.winner == GomokuGame.black {
+                    result = "B+5"
+                } else if g.winner == GomokuGame.white {
+                    result = "W+5"
+                }
+            }
+            let url = try GomokuRecord.saveToFile(g, blackName: blackName, whiteName: whiteName,
+                                                  result: result.isEmpty ? nil : result,
                                                   directory: GomokuGameModel.recordsDirectory)
             shareItem = ShareItem(url: url, title: "棋谱已保存")
         } catch {

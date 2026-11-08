@@ -24,6 +24,8 @@ final class GomokuGameModel: ObservableObject {
 
     private var aiToken = 0
     private var transientToken = 0
+    /// 认输等非五连终局的 SGF 结果码（B+R / W+R），存谱时写入 RE。
+    private var endResultCode = ""
 
     init(setup: GomokuSetup) {
         mode = setup.mode
@@ -170,6 +172,7 @@ final class GomokuGameModel: ObservableObject {
         let winner = 3 - loser
         let loserName = loser == GomokuGame.black ? "黑方" : "白方"
         let winnerName = winner == GomokuGame.black ? "黑方" : "白方"
+        endResultCode = (winner == GomokuGame.black ? "B" : "W") + "+R"
         if mode == .ai {
             transientStatus = "\(GomokuAi.levelName(level)) · \(loserName)认输"
         } else {
@@ -232,6 +235,7 @@ final class GomokuGameModel: ObservableObject {
         aiToken += 1
         game.clear()
         game.isRenju = renju
+        endResultCode = ""
         hint = nil
         resultText = nil
         transientStatus = nil
@@ -277,6 +281,7 @@ final class GomokuGameModel: ObservableObject {
     }
 
     private func recordResult() -> String {
+        if !endResultCode.isEmpty { return endResultCode }
         if game.isOver {
             return game.winner == GomokuGame.black ? "B+5" : "W+5"
         }
@@ -306,6 +311,8 @@ final class GomokuGameModel: ObservableObject {
         }
         game = g
         renju = g.isRenju
+        // 与 Android 一致：读谱保留 RE，重新存谱时不会丢结果
+        endResultCode = data.result
         thinking = false
         hint = nil
         replaying = true

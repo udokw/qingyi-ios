@@ -17,8 +17,11 @@ final class GomokuRecord {
     static let recordExtension = ".gmk"
     /// 固定头：GM[4] 表示五子棋 / 连珠。
     static let header = "GM[4]"
-    /// AP 应用标识。属性名与顺序和 Android 相同；若需与安卓逐字节一致，改成 "QingYi-Android:1.2.2"。
-    static let applicationTag = "QingYi-iOS:1.0"
+    /// AP 应用标识。与 Android 一样读取应用版本：`QingYi-iOS:<CFBundleShortVersionString>`。
+    static var applicationTag: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return "QingYi-iOS:" + (version ?? "1.0")
+    }
 
     struct Data {
         var size = GomokuGame.boardSize
