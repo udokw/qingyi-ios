@@ -660,6 +660,8 @@ final class LanHub: ObservableObject {
     @Published private(set) var mainSec = 1200
     @Published private(set) var byoYomiSec = 30
     @Published private(set) var periods = 3
+    /// 房间规则：是否允许落点 / 可吃子提示。房主建房时确定，随房间下发，客机不得自行修改。
+    @Published private(set) var hintsEnabled = true
     @Published private(set) var hostAddress = ""
     @Published private(set) var port: UInt16 = 0
     @Published private(set) var linkDown = false
@@ -681,6 +683,7 @@ final class LanHub: ObservableObject {
     private var host: LanHost?
     private var client: LanClient?
     private var discovery: LanDiscovery?
+    private var queryResponder: LanQueryResponder?
 
     private var guestClock: [String: Any]?
     private var guestClockAt: Int64 = 0
@@ -713,7 +716,7 @@ final class LanHub: ObservableObject {
     private var lastHostIp = ""
     private var lastHostPort: UInt16 = 0
     private let clientId = UUID().uuidString
-    private let appVersion = "1.0.4"
+    private let appVersion = "1.0.5"
 
     private init() {}
 
@@ -781,7 +784,8 @@ final class LanHub: ObservableObject {
     // MARK: - 建房
 
     func hostRoom(game: String, name: String, color: Int,
-                  mainSec: Int, byoYomiSec: Int, periods: Int) {
+                  mainSec: Int, byoYomiSec: Int, periods: Int,
+                  hints: Bool = true) {
         // 旧监听器的 socket 释放是异步的；先等它彻底停掉再绑端口，
         // 否则新房间会被迫顺延到 41235、41236……（曾一路漂到 41244）。
         let previousHost = host
@@ -795,20 +799,27 @@ final class LanHub: ObservableObject {
         self.mainSec = max(0, mainSec)
         self.byoYomiSec = max(0, byoYomiSec)
         self.periods = max(1, periods)
+        self.hintsEnabled = hints
 
         let newSession = LanGameSession(room: roomCode, game: gameId)
         newSession.reset(komi: gameId == LanProto.goGame ? LanProto.goKomi : 0)
         session = newSession
         clock = LanClock(mainSec: self.mainSec, byoYomiSec: self.byoYomiSec, periods: self.periods)
 
-        let newHost = LanHost(roomCode: roomCode, gameId: gameId, size: newSession.size)
+        let newHost = LanHost(roomCode: roomCode, gameId: gameId, size: newSession.size,
+                              hintsEnabled: hints)
         host = newHost
+        // 「只填房号」加入的兜底通道：UDP 广播查询，回包带真实端口
+        let responder = LanQueryResponder(room: roomCode, game: gameId, iid: newHost.iid)
+        queryResponder = responder
+        responder.start()
         newHost.onReady = { [weak self, weak newHost] port, addr in
             Task { @MainActor in
                 guard let self, let newHost, self.host === newHost else { return }
                 self.port = port
                 self.hostAddress = addr.isEmpty ? "\(port)" : "\(addr):\(port)"
                 self.state = .hosting
+                self.queryResponder?.update(port: port, addr: addr)
                 self.updateProbePayload()
             }
         }
@@ -853,6 +864,7 @@ final class LanHub: ObservableObject {
             "iid": host.iid,
             "pid": host.pid,
             "ts": LanProto.nowMs(),
+            "hints": hintsEnabled ? 1 : 0,
             "state": state == .playing ? "playing" : "waiting"
         ])
     }
@@ -874,7 +886,7 @@ final class LanHub: ObservableObject {
         stop()
         role = .guest
         localName = Self.safe(name, "棋友")
-        roomCode = code.trimmingCharacters(in: .whitespaces).uppercased()
+        roomCode = LanProto.normalizeRoomCode(code)
         gameId = (game ?? "").trimmingCharacters(in: .whitespaces)
         state = .connecting
         hostAddress = candidates.first ?? ""
@@ -884,6 +896,62 @@ final class LanHub: ObservableObject {
 
     func joinRoom(room: LanRoom, name: String) {
         joinRoom(candidates: ["\(room.host):\(room.port)"], code: room.code, name: name, game: room.game)
+    }
+
+    /// 只填房号也能加入：
+    /// 1. 已发现列表里有同房号 → 直接用它的真实地址；
+    /// 2. 填了地址 → 显式端口直接连，否则用 UDP 广播补真实端口，再退回端口区间扫描；
+    /// 3. 什么都没填 → UDP 广播按房号定向查询；查不到给明确提示，不干等。
+    func joinByInput(code raw: String, address: String, name: String, game: String?) {
+        let code = LanProto.normalizeRoomCode(raw)
+        let text = address.trimmingCharacters(in: .whitespaces)
+
+        if let room = rooms.first(where: { $0.code.caseInsensitiveCompare(code) == .orderedSame }) {
+            joinRoom(candidates: ["\(room.host):\(room.port)"], code: code, name: name, game: game)
+            return
+        }
+        if !text.isEmpty {
+            let base = manualCandidates(text, code: code)
+            if Self.explicitPort(text) != nil {
+                joinRoom(candidates: base, code: code, name: name, game: game)
+                return
+            }
+            joinWithLookup(code: code, address: text, base: base, name: name, game: game)
+            return
+        }
+        joinWithLookup(code: code, address: "", base: [], name: name, game: game)
+    }
+
+    private func joinWithLookup(code: String, address: String, base: [String],
+                                name: String, game: String?) {
+        stop()
+        role = .guest
+        localName = Self.safe(name, "棋友")
+        roomCode = code
+        gameId = (game ?? "").trimmingCharacters(in: .whitespaces)
+        state = .connecting
+        hostAddress = ""
+        connectTask = Task {
+            let found = await LanRoomQuery.lookup(code: code, timeout: address.isEmpty ? 2.5 : 1.8)
+            guard self.state == .connecting else { return }
+            var list: [String] = []
+            if address.isEmpty {
+                list = found
+            } else {
+                let ip = Self.hostOnly(address)
+                for item in found where ip.isEmpty || item.hasPrefix(ip + ":") {
+                    list.append(item)
+                }
+                list.append(contentsOf: base)
+            }
+            var seen = Set<String>()
+            let unique = list.filter { seen.insert($0).inserted }
+            guard !unique.isEmpty else {
+                self.failJoin("未找到房号 \(code) 的房间，请确认双方在同一网络（或让房主把「地址」发给你）")
+                return
+            }
+            await self.connectLoop(unique)
+        }
     }
 
     private func connectLoop(_ candidates: [String]) async {
@@ -1023,7 +1091,8 @@ final class LanHub: ObservableObject {
                 "periods": periods,
                 "incrementSec": 0
             ],
-            "startAtHostMs": LanProto.nowMs()
+            "startAtHostMs": LanProto.nowMs(),
+            "hints": hintsEnabled ? 1 : 0
         ]
 
         guard newHost.send(LanProto.message(LanMsg.gameStart, room: roomCode, from: "host", payload: payload)) else {
@@ -1127,6 +1196,7 @@ final class LanHub: ObservableObject {
 
     private func afterMove() {
         guard let session else { return }
+        playMoveSound()
         if let result = session.result() {
             hostFinishPayload(result)
             return
@@ -1234,6 +1304,7 @@ final class LanHub: ObservableObject {
         ]
         for (key, value) in res { payload[key] = value }
         host?.send(LanProto.message(LanMsg.gameOver, room: roomCode, from: "host", payload: payload))
+        playGameOverSound()
         boardVersion += 1
         updateProbePayload()
     }
@@ -1302,6 +1373,7 @@ final class LanHub: ObservableObject {
             session = newSession
             myColor = newSession.seatFromChar(LanProto.string(p, "yourColor", "W"))
             opponentName = LanProto.string(p, "opponentName", "对手")
+            hintsEnabled = LanProto.bool(p, "hints", true)
             if let code = p["room"] as? String, !code.isEmpty { roomCode = code }
             state = .lobby
             boardVersion += 1
@@ -1324,6 +1396,8 @@ final class LanHub: ObservableObject {
             gameId = session?.game ?? game
             session?.size = LanProto.int(p, "size", session?.size ?? boardSize)
             session?.reset(komi: komi)
+            // 房间规则由房主下发，客机只读
+            hintsEnabled = LanProto.bool(p, "hints", hintsEnabled)
             if let tc = p["timeControl"] as? [String: Any] {
                 mainSec = LanProto.int(tc, "mainSec", 0)
                 byoYomiSec = LanProto.int(tc, "byoYomiSec", byoYomiSec)
@@ -1383,6 +1457,7 @@ final class LanHub: ObservableObject {
             linkDown = false
             stopLinkWatch()
             stopTicker()
+            playGameOverSound()
             boardVersion += 1
             clockTick += 1
 
@@ -1437,6 +1512,7 @@ final class LanHub: ObservableObject {
                     "moveNo": session.moveNo,
                     "yourColor": session.colorChar(3 - hostColor),
                     "opponentName": localName,
+                    "hints": hintsEnabled ? 1 : 0,
                     "snapshot": session.snapshot()
                 ]
                 if let clock, clock.active { ack["clock"] = clock.snapshot(moveNo: session.moveNo) }
@@ -1462,6 +1538,7 @@ final class LanHub: ObservableObject {
             "yourColor": session.colorChar(guestColor),
             "opponentName": localName,
             "hostPlatform": "ios",
+            "hints": hintsEnabled ? 1 : 0,
             "ruleset": session.game == LanProto.goGame ? "chinese-simple-ko" : "xiangqi",
             "serverTime": LanProto.nowMs()
         ]
@@ -1523,9 +1600,31 @@ final class LanHub: ObservableObject {
         if !ok {
             notice = "状态不同步，正在向房主校准…"
             sendToHost(LanProto.message(LanMsg.syncRequest, room: roomCode, from: "guest"))
+        } else {
+            playMoveSound()
         }
         boardVersion += 1
         clockTick += 1
+    }
+
+    /// 联机落子音效：与本地对局保持一致（落子/吃子共用落子音，将军用将军音）。
+    /// 之前联机路径完全没有调用 SoundPlayer，所以双方都听不到声音。
+    private func playMoveSound() {
+        guard state == .playing else { return }
+        if gameId == LanProto.goGame {
+            SoundPlayer.shared.playStone()
+            return
+        }
+        if let game = session?.xiangqi, game.inCheck(game.turn) {
+            SoundPlayer.shared.playCheck()
+        } else {
+            SoundPlayer.shared.playMove()
+        }
+    }
+
+    /// 终局提示音（当前只有落子/将军两个音频资源，结束沿用将军音）。
+    private func playGameOverSound() {
+        SoundPlayer.shared.playCheck()
     }
 
     private func replyPong(_ ping: [String: Any]) {
@@ -1859,10 +1958,12 @@ final class LanHub: ObservableObject {
         host?.stop()
         client?.close()
         discovery?.stop()
+        queryResponder?.stop()
 
         host = nil
         client = nil
         discovery = nil
+        queryResponder = nil
         session = nil
         guestPresent = false
         clock = nil
@@ -1902,7 +2003,7 @@ final class LanHub: ObservableObject {
     func manualCandidates(_ text: String, code: String) -> [String] {
         let value = text.trimmingCharacters(in: .whitespaces)
         guard !value.isEmpty else { return [] }
-        let normalizedCode = code.trimmingCharacters(in: .whitespaces).uppercased()
+        let normalizedCode = LanProto.normalizeRoomCode(code)
         let matched = rooms.first { room in
             (!normalizedCode.isEmpty && room.code.caseInsensitiveCompare(normalizedCode) == .orderedSame)
                 || room.host == Self.hostOnly(value)

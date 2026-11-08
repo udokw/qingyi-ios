@@ -63,6 +63,10 @@ struct LanGameView: View {
                              secondaryButton: .cancel(Text("留在房间")))
             }
         }
+        .onAppear {
+            // 联机对局之前完全没有初始化音效开关，导致双方都听不到落子声
+            if game == .xiangqi { SoundPlayer.shared.setEnabled(true) }
+        }
     }
 
     // MARK: - 顶部
@@ -183,7 +187,10 @@ struct LanGameView: View {
     private func select(_ x: Int, _ y: Int) {
         guard let g = hub.xiangqiGame else { return }
         selection = GoPoint(x: x, y: y)
-        hints = g.legalMoves(from: GoPoint(x: x, y: y)).map { $0.to }
+        // 是否显示落点提示由房主的房间规则决定，客机不自行决定
+        hints = hub.hintsEnabled
+            ? g.legalMoves(from: GoPoint(x: x, y: y)).map { $0.to }
+            : []
     }
 
     private func clearSelection() {

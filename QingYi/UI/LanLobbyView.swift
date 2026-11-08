@@ -18,7 +18,10 @@ struct LanLobbyView: View {
     @State private var manual = ""
     @State private var hostColor = 1
     @State private var timed = true
+    @State private var hints = true
     @State private var localError = ""
+    @State private var selfTestBusy = false
+    @State private var selfTestReport = ""
 
     private var theme: Theme { app.theme }
     private var gameId: String { game == .go ? LanProto.goGame : LanProto.xiangqiGame }
@@ -121,12 +124,36 @@ struct LanLobbyView: View {
             }
             CheckRow(title: "20 分钟 + 读秒 30 秒 × 3", checked: timed, theme: theme) { timed = true }
             CheckRow(title: "不计时", checked: !timed, theme: theme) { timed = false }
+            if gameId == LanProto.xiangqiGame {
+                CheckRow(title: "落点提示与可吃子提示（房间规则）", checked: hints, theme: theme) {
+                    hints.toggle()
+                }
+            }
             ThemedActionButton(title: "创建房间", kind: .primary, theme: theme) {
                 localError = ""
                 hub.hostRoom(game: gameId, name: name, color: hostColor,
                              mainSec: timed ? 1200 : 0,
                              byoYomiSec: timed ? 30 : 0,
-                             periods: timed ? 3 : 0)
+                             periods: timed ? 3 : 0,
+                             hints: hints)
+            }
+            Button {
+                runSelfTest()
+            } label: {
+                Text(selfTestBusy ? "正在逐个测试端口…" : "网络与端口自检")
+                    .font(.system(size: 12))
+                    .foregroundColor(theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+            .disabled(selfTestBusy)
+            if !selfTestReport.isEmpty {
+                Text(selfTestReport)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(theme.sub)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(18)
@@ -147,6 +174,9 @@ struct LanLobbyView: View {
             field("你的称呼", text: $name, keyboard: .default)
             field("四位房号", text: $joinCode, keyboard: .asciiCapable)
             field("手动地址（如 192.168.1.5:41234）", text: $manual, keyboard: .numbersAndPunctuation)
+            Text("只填房号也能加入：留空地址，会自动按房号在同一网络内查询。")
+                .font(.system(size: 11))
+                .foregroundColor(theme.foot)
             if !localError.isEmpty {
                 Text(localError)
                     .font(.system(size: 12))
@@ -172,7 +202,7 @@ struct LanLobbyView: View {
                     Text("正在搜索同一网络内的房间…")
                         .font(.system(size: 13))
                         .foregroundColor(theme.sub)
-                    Text("搜不到时：① 确认两台设备连同一个 Wi-Fi；② 关闭手机上的 VPN / 代理（会挡住 mDNS 组播）；③ 让房主把房间卡片上的「房号 + 地址」发给你，在上面手动填写——地址只填 IP 也能加入，会自动尝试 41234–41244。")
+                    Text("搜不到时：① 确认两台设备连同一个 Wi-Fi；② 关闭手机上的 VPN / 代理（会挡住 mDNS 组播）；③ 直接在上面填四位房号即可加入——不需要填 IP，会自动用 UDP 广播按房号找房主。")
                         .font(.system(size: 11))
                         .foregroundColor(theme.foot)
                         .fixedSize(horizontal: false, vertical: true)
@@ -220,23 +250,26 @@ struct LanLobbyView: View {
     }
 
     private func joinByInput() {
-        let code = joinCode.trimmingCharacters(in: .whitespaces).uppercased()
-        guard !code.isEmpty else {
-            localError = "请输入四位房间码"
-            return
-        }
-        // 手动地址只填 IP 也可以：优先用发现到的真实端口，再按 41234–41244 兜底。
-        var candidates = hub.manualCandidates(manual, code: code)
-        if let room = hub.rooms.first(where: { $0.code.caseInsensitiveCompare(code) == .orderedSame }) {
-            let address = "\(room.host):\(room.port)"
-            if !candidates.contains(address) { candidates.insert(address, at: 0) }
-        }
-        guard !candidates.isEmpty else {
-            localError = "请填写房主地址（只填 IP 也可以），或让房主把「地址」发给你"
+        let code = LanProto.normalizeRoomCode(joinCode)
+        guard code.count == 4 else {
+            localError = "请输入四位房号"
             return
         }
         localError = ""
-        hub.joinRoom(candidates: candidates, code: code, name: name, game: gameId)
+        hub.joinByInput(code: code, address: manual, name: name, game: gameId)
+    }
+
+    private func runSelfTest() {
+        guard !selfTestBusy else { return }
+        selfTestBusy = true
+        selfTestReport = ""
+        Task {
+            let report = await LanPortProbe.report()
+            await MainActor.run {
+                selfTestReport = report
+                selfTestBusy = false
+            }
+        }
     }
 
     // MARK: - 房间状态

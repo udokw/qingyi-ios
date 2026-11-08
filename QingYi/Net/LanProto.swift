@@ -25,6 +25,20 @@ enum LanProto {
     static var portCandidates: [UInt16] {
         (0..<portTries).map { UInt16(Int(defaultPort) + $0) }
     }
+
+    /// UDP 房号查询端口。真正的 TCP 监听端口由系统分配并通过 TXT / UDP 应答下发，
+    /// 这里只用于「只填房号」时定向找房主（与 Android `Proto.QUERY_PORT` 一致）。
+    static let queryPort: UInt16 = 41235
+    static let roomQueryType = "room_query"
+    static let roomReplyType = "room_reply"
+
+    /// 房号规范化：去空格、转大写。用户手输的 `a b 2 9` / `ab29` 都归一成 `AB29`。
+    static func normalizeRoomCode(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compact = trimmed.replacingOccurrences(of: " ", with: "")
+        return compact.uppercased()
+    }
+
     static let maxFrame = 65536
 
     /// 断线宽限：宽限期内时钟暂停，到点判负。
@@ -215,8 +229,48 @@ enum LanProto {
         return fallback
     }
 
-    // MARK: - 摘要
+    /// 子网定向广播地址（配合 255.255.255.255 一起发，部分路由器只放行其中一种）。
+    static func broadcastAddresses() -> [String] {
+        var out = ["255.255.255.255"]
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return out }
+        defer { freeifaddrs(ifaddr) }
 
+        var pointer: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = pointer {
+            let interface = current.pointee
+            if let addr = interface.ifa_addr, let mask = interface.ifa_netmask,
+               addr.pointee.sa_family == UInt8(AF_INET) {
+                let name = String(cString: interface.ifa_name)
+                if name != "lo0" {
+                    let ip = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
+                    let netmask = mask.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
+                    let broadcast = ip | ~netmask
+                    if broadcast != 0 {
+                        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                        var sa = sockaddr_in()
+                        sa.sin_family = sa_family_t(AF_INET)
+                        sa.sin_addr.s_addr = broadcast
+                        sa.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                        let result = withUnsafePointer(to: &sa) { ptr in
+                            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                                getnameinfo($0, socklen_t(MemoryLayout<sockaddr_in>.size),
+                                            &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
+                            }
+                        }
+                        if result == 0 {
+                            let text = String(cString: host)
+                            if !text.isEmpty, !out.contains(text) { out.append(text) }
+                        }
+                    }
+                }
+            }
+            pointer = interface.ifa_next
+        }
+        return out
+    }
+
+    // MARK: - 摘要
     /// 与 Android 一致的 SHA-256 十六进制（小写）。
     static func sha256Hex(_ text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))
