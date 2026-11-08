@@ -145,8 +145,10 @@ struct LanApplyResult {
     var code = ""
     var message = ""
     var pass = false
+    var flip = false
     var x = -1, y = -1
     var fx = -1, fy = -1, tx = -1, ty = -1
+    var piece = 0
     var captured = 0
     var nextTurn = 1
     var moveNo = 0
@@ -167,52 +169,83 @@ final class LanGameSession {
 
     private(set) var go: GoGame?
     private(set) var xiangqi: XiangqiGame?
+    private(set) var gomoku: GomokuGame?
+    private(set) var banqi: BanqiGame?
 
     init(room: String, game: String, matchId: String? = nil) {
         self.room = room
-        self.game = game == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
+        let allowed = [LanProto.goGame, LanProto.xiangqiGame,
+                       LanProto.gomokuGame, LanProto.banqiGame]
+        self.game = allowed.contains(game) ? game : LanProto.goGame
         if let matchId, !matchId.isEmpty {
             self.matchId = matchId
         } else {
             self.matchId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
         }
-        if self.game == LanProto.goGame {
+        switch self.game {
+        case LanProto.goGame:
             size = LanProto.goSize
             komi = LanProto.goKomi
             let g = GoGame(size: LanProto.goSize)
             g.komi = komi
             go = g
-        } else {
+        case LanProto.xiangqiGame:
             size = XiangqiGame.cols
             komi = 0
             xiangqi = XiangqiGame()
+        case LanProto.gomokuGame:
+            size = GomokuGame.boardSize
+            komi = 0
+            gomoku = GomokuGame(size: GomokuGame.boardSize)
+        default:
+            size = BanqiGame.cols * BanqiGame.rows
+            komi = 0
+            banqi = BanqiGame()
         }
     }
 
     func reset(komi newKomi: Double) {
         komi = game == LanProto.goGame ? newKomi : 0
-        if game == LanProto.goGame {
+        switch game {
+        case LanProto.goGame:
             let g = GoGame(size: LanProto.goSize)
             g.komi = komi
             go = g
             size = g.size
-        } else {
+        case LanProto.xiangqiGame:
             xiangqi = XiangqiGame()
             size = XiangqiGame.cols
+        case LanProto.gomokuGame:
+            gomoku = GomokuGame(size: GomokuGame.boardSize)
+            size = GomokuGame.boardSize
+        default:
+            banqi = BanqiGame()
+            size = BanqiGame.cols * BanqiGame.rows
         }
         moveNo = 0
         consecutivePasses = 0
     }
 
     func turn() -> Int {
-        if game == LanProto.goGame {
+        switch game {
+        case LanProto.goGame:
             return go?.turn == .white ? 2 : 1
+        case LanProto.xiangqiGame:
+            return xiangqi?.turn == .black ? 2 : 1
+        case LanProto.gomokuGame:
+            return gomoku?.turn == GomokuGame.white ? 2 : 1
+        default:
+            return banqi?.turnSeat ?? 1
         }
-        return xiangqi?.turn == .black ? 2 : 1
     }
 
     func moveCount() -> Int {
-        game == LanProto.goGame ? (go?.history.count ?? 0) : (xiangqi?.history.count ?? 0)
+        switch game {
+        case LanProto.goGame: return go?.history.count ?? 0
+        case LanProto.xiangqiGame: return xiangqi?.history.count ?? 0
+        case LanProto.gomokuGame: return gomoku?.moveCount ?? 0
+        default: return banqi?.plies ?? 0
+        }
     }
 
     func supportsPass() -> Bool { game == LanProto.goGame }
@@ -231,6 +264,20 @@ final class LanGameSession {
                 }
             }
             return LanProto.sha256Hex(text)
+        }
+        if game == LanProto.gomokuGame {
+            guard let g = gomoku else { return "" }
+            // 与 Android `GomokuRules.hash` 逐字节一致
+            var text = "gomoku|1|SZ=\(g.size)|R=\(g.isRenju ? 1 : 0)|M=\(moveNo)"
+                + "|T=\(g.turn == GomokuGame.black ? "B" : "W")|W=\(g.winner)|"
+            for y in 0..<g.size {
+                if y > 0 { text.append("/") }
+                for x in 0..<g.size { text.append(String(g.get(x, y))) }
+            }
+            return LanProto.sha256Hex(text)
+        }
+        if game == LanProto.banqiGame {
+            return banqi?.positionKey ?? ""
         }
         guard let g = xiangqi else { return "" }
         return LanProto.sha256Prefix8(Self.compatPositionKey(g) + "|M=\(moveNo)")
@@ -274,6 +321,25 @@ final class LanGameSession {
                 "ko": [g.ko?.x ?? -1, g.ko?.y ?? -1],
                 "board": board,
                 "moves": moves
+            ]
+        } else if let g = gomoku {
+            let moves: [[Any]] = g.history.map {
+                [$0.color == GomokuGame.black ? "B" : "W", $0.x, $0.y]
+            }
+            out = [
+                "size": g.size,
+                "renju": g.isRenju,
+                "toMove": g.turn == GomokuGame.black ? "B" : "W",
+                "winner": g.winner,
+                "moves": moves
+            ]
+            if let w = g.winLine {
+                out["winLine"] = [w.x1, w.y1, w.x2, w.y2]
+            }
+        } else if let g = banqi {
+            out = [
+                "fen": g.fen,
+                "moveNo": g.plies
             ]
         } else if let g = xiangqi {
             let moves: [[Any]] = g.history.map { move in
@@ -323,6 +389,25 @@ final class LanGameSession {
             }
             go = g
             size = g.size
+        } else if game == LanProto.gomokuGame {
+            let n = restoredSize > 1 ? restoredSize : GomokuGame.boardSize
+            let g = GomokuGame(size: n)
+            g.isRenju = LanProto.bool(p, "renju")
+            if let moves = p["moves"] as? [[Any]] {
+                for one in moves {
+                    guard one.count >= 3 else { return false }
+                    let x = Self.number(one[1])
+                    let y = Self.number(one[2])
+                    if !g.play(x, y) { return false }
+                }
+            }
+            gomoku = g
+            size = g.size
+        } else if game == LanProto.banqiGame {
+            let g = BanqiGame()
+            if let fen = p["fen"] as? String, !fen.isEmpty, !g.loadFen(fen) { return false }
+            banqi = g
+            size = BanqiGame.cols * BanqiGame.rows
         } else {
             let g = XiangqiGame()
             let moves = (p["moves"] as? [[Any]]) ?? []
@@ -428,6 +513,77 @@ final class LanGameSession {
             return r
         }
 
+        if game == LanProto.gomokuGame {
+            guard let g = gomoku else { return r }
+            let x = LanProto.int(move, "x", -1)
+            let y = LanProto.int(move, "y", -1)
+            if x < 0 || y < 0 || x >= g.size || y >= g.size {
+                r.code = "E_OCCUPIED"
+                r.message = "落点超出棋盘"
+                return r
+            }
+            if g.get(x, y) != GomokuGame.empty {
+                r.code = "E_OCCUPIED"
+                r.message = "这里已经有子了"
+                return r
+            }
+            let res = g.tryPlay(x, y)
+            if res == GomokuGame.playForbidden {
+                r.code = "E_ILLEGAL"
+                r.message = g.forbiddenText(x, y)
+                return r
+            }
+            if res != GomokuGame.playOK {
+                r.code = "E_ILLEGAL"
+                r.message = "这一手不能下"
+                return r
+            }
+            r.ok = true
+            r.x = x
+            r.y = y
+            r.nextTurn = turn()
+            return r
+        }
+
+        if game == LanProto.banqiGame {
+            guard let g = banqi else { return r }
+            let flip = LanProto.bool(move, "flip")
+            let before = g.plies
+            let ok: Bool
+            if flip {
+                ok = g.flip(x: LanProto.int(move, "x", -1), y: LanProto.int(move, "y", -1))
+            } else {
+                ok = g.play(fromX: LanProto.int(move, "fx", -1),
+                            fromY: LanProto.int(move, "fy", -1),
+                            toX: LanProto.int(move, "tx", -1),
+                            toY: LanProto.int(move, "ty", -1))
+            }
+            if !ok {
+                r.code = "E_ILLEGAL_MOVE"
+                r.message = flip ? "这里不能翻子" : "这一手不能走"
+                return r
+            }
+            r.ok = true
+            r.pass = false
+            r.flip = flip
+            if flip {
+                r.x = LanProto.int(move, "x", -1)
+                r.y = LanProto.int(move, "y", -1)
+            } else {
+                r.fx = LanProto.int(move, "fx", -1)
+                r.fy = LanProto.int(move, "fy", -1)
+                r.tx = LanProto.int(move, "tx", -1)
+                r.ty = LanProto.int(move, "ty", -1)
+            }
+            if g.plies > before, let last = g.lastMove {
+                // 与 Android BanqiRules.apply 一致：piece = 翻出的子 / 被吃的子编码
+                r.piece = last.piece
+                r.captured = last.captured
+            }
+            r.nextTurn = turn()
+            return r
+        }
+
         guard let g = xiangqi else { return r }
         let fx = LanProto.int(move, "fx", -1)
         let fy = LanProto.int(move, "fy", -1)
@@ -465,6 +621,23 @@ final class LanGameSession {
             } else if g.play(LanProto.int(ack, "x", -1), LanProto.int(ack, "y", -1)) == nil {
                 return false
             }
+        } else if game == LanProto.gomokuGame {
+            guard let g = gomoku else { return false }
+            if !g.play(LanProto.int(ack, "x", -1), LanProto.int(ack, "y", -1)) { return false }
+        } else if game == LanProto.banqiGame {
+            guard let g = banqi else { return false }
+            if LanProto.bool(ack, "flip") {
+                if !g.flipWith(x: LanProto.int(ack, "x", -1),
+                               y: LanProto.int(ack, "y", -1),
+                               revealed: LanProto.int(ack, "piece", 0)) {
+                    return false
+                }
+            } else if !g.play(fromX: LanProto.int(ack, "fx", -1),
+                              fromY: LanProto.int(ack, "fy", -1),
+                              toX: LanProto.int(ack, "tx", -1),
+                              toY: LanProto.int(ack, "ty", -1)) {
+                return false
+            }
         } else {
             guard let g = xiangqi else { return false }
             if !g.play(from: GoPoint(x: LanProto.int(ack, "fx", -1), y: LanProto.int(ack, "fy", -1)),
@@ -483,6 +656,18 @@ final class LanGameSession {
             guard let g = go else { return 0 }
             while done < count, g.canUndo {
                 g.undo()
+                done += 1
+            }
+        } else if game == LanProto.gomokuGame {
+            guard let g = gomoku else { return 0 }
+            while done < count, g.canUndo {
+                g.undo()
+                done += 1
+            }
+        } else if game == LanProto.banqiGame {
+            guard let g = banqi else { return 0 }
+            while done < count {
+                guard g.undo() != nil else { break }
                 done += 1
             }
         } else {
@@ -505,6 +690,22 @@ final class LanGameSession {
             p["pass"] = LanProto.bool(move, "pass")
             p["x"] = LanProto.int(move, "x", -1)
             p["y"] = LanProto.int(move, "y", -1)
+        } else if game == LanProto.gomokuGame {
+            p["pass"] = false
+            p["x"] = LanProto.int(move, "x", -1)
+            p["y"] = LanProto.int(move, "y", -1)
+        } else if game == LanProto.banqiGame {
+            let flip = LanProto.bool(move, "flip")
+            p["flip"] = flip
+            if flip {
+                p["x"] = LanProto.int(move, "x", -1)
+                p["y"] = LanProto.int(move, "y", -1)
+            } else {
+                p["fx"] = LanProto.int(move, "fx", -1)
+                p["fy"] = LanProto.int(move, "fy", -1)
+                p["tx"] = LanProto.int(move, "tx", -1)
+                p["ty"] = LanProto.int(move, "ty", -1)
+            }
         } else {
             let fx = LanProto.int(move, "fx", -1)
             let fy = LanProto.int(move, "fy", -1)
@@ -524,6 +725,8 @@ final class LanGameSession {
         var seat = 1
         var fx = -1, fy = -1, tx = -1, ty = -1
         var pass = false
+        var flip = false
+        var piece = 0
         var captured = 0
         var text = ""
     }
@@ -538,6 +741,29 @@ final class LanGameSession {
             info.fy = m.point?.y ?? -1
             info.captured = m.captured.count
             info.text = m.point == nil ? "停一手" : g.toGtp(m.point!.x, m.point!.y)
+            return info
+        }
+        if game == LanProto.gomokuGame {
+            guard let g = gomoku, let m = g.history.last else { return nil }
+            var info = MoveInfo()
+            info.seat = m.color == GomokuGame.black ? 1 : 2
+            info.fx = m.x
+            info.fy = m.y
+            info.text = GomokuGameModel.coordinate(m.x, m.y)
+            return info
+        }
+        if game == LanProto.banqiGame {
+            guard let g = banqi, let m = g.lastMove else { return nil }
+            var info = MoveInfo()
+            info.seat = m.seat
+            info.flip = m.flip
+            info.piece = m.piece
+            info.fx = m.x
+            info.fy = m.y
+            info.tx = m.flip ? -1 : m.tx
+            info.ty = m.flip ? -1 : m.ty
+            info.captured = m.captured != 0 ? 1 : 0
+            info.text = g.notation(m)
             return info
         }
         guard let g = xiangqi, let m = g.history.last else { return nil }
@@ -555,6 +781,33 @@ final class LanGameSession {
     // MARK: - 结果
 
     func result() -> [String: Any]? {
+        if game == LanProto.gomokuGame {
+            guard let g = gomoku, g.isOver || g.isFull() else { return nil }
+            if g.isOver {
+                let code = g.winner == GomokuGame.black ? "B+5" : "W+5"
+                let w = g.winner == GomokuGame.black ? "黑方" : "白方"
+                return ["result": code,
+                        "detail": "\(w)五连获胜，共 \(g.moveCount) 手。",
+                        "reason": "rule"]
+            }
+            return ["result": "draw",
+                    "detail": "棋盘已满，和棋（共 \(g.moveCount) 手）。",
+                    "reason": "rule"]
+        }
+        if game == LanProto.banqiGame {
+            guard let g = banqi, g.isOver else { return nil }
+            let code: String
+            let reason: String
+            if g.result == BanqiGame.resultDraw {
+                code = "draw"
+                reason = "draw"
+            } else {
+                code = g.result == BanqiGame.red ? "red" : "black"
+                let tag = g.endReasonKind.protocolReason
+                reason = tag.isEmpty ? "rule" : tag
+            }
+            return ["result": code, "detail": g.endReason, "reason": reason]
+        }
         guard game == LanProto.xiangqiGame, let g = xiangqi, g.isOver else { return nil }
         let code = g.isDraw ? "draw" : colorChar(g.result?.rawValue ?? 1)
         return ["result": code, "detail": g.endReason, "reason": "rule"]
@@ -562,6 +815,13 @@ final class LanGameSession {
 
     func resultByResign(_ resignSeat: Int) -> [String: Any] {
         let winner = 3 - resignSeat
+        if game == LanProto.banqiGame {
+            banqi?.resign(seat: resignSeat)
+            let code = banqi?.result == BanqiGame.red ? "red" : "black"
+            return ["result": code,
+                    "detail": banqi?.endReason ?? "\(colorName(resignSeat))方认输",
+                    "reason": "resign"]
+        }
         let detail = "\(colorName(resignSeat))方认输，\(colorName(winner))方" +
             (game == LanProto.goGame ? "中盘胜" : "胜")
         if game == LanProto.xiangqiGame { xiangqi?.resign(resignSeat == 1 ? .red : .black) }
@@ -571,11 +831,21 @@ final class LanGameSession {
             out["blackScore"] = -1
             out["whiteScore"] = -1
         }
+        if game == LanProto.gomokuGame {
+            out["result"] = colorChar(winner) + "+R"
+        }
         return out
     }
 
     func resultByTimeout(_ timeoutSeat: Int) -> [String: Any] {
         let winner = 3 - timeoutSeat
+        if game == LanProto.banqiGame {
+            banqi?.timeout(seat: timeoutSeat)
+            let code = banqi?.result == BanqiGame.red ? "red" : "black"
+            return ["result": code,
+                    "detail": banqi?.endReason ?? "\(colorName(timeoutSeat))方超时",
+                    "reason": "timeout"]
+        }
         let detail = "\(colorName(timeoutSeat))方超时，\(colorName(winner))方" +
             (game == LanProto.goGame ? "胜" : "胜")
         if game == LanProto.xiangqiGame { xiangqi?.resign(timeoutSeat == 1 ? .red : .black) }
@@ -585,11 +855,21 @@ final class LanGameSession {
             out["blackScore"] = -1
             out["whiteScore"] = -1
         }
+        if game == LanProto.gomokuGame {
+            out["result"] = colorChar(winner) + "+T"
+        }
         return out
     }
 
     func resultByDisconnect(_ lostSeat: Int) -> [String: Any] {
         let winner = 3 - lostSeat
+        if game == LanProto.banqiGame {
+            banqi?.disconnect(seat: lostSeat)
+            let code = banqi?.result == BanqiGame.red ? "red" : "black"
+            return ["result": code,
+                    "detail": banqi?.endReason ?? "\(colorName(lostSeat))方断线",
+                    "reason": "disconnect"]
+        }
         let detail = "\(colorName(lostSeat))方断线，\(colorName(winner))方" +
             (game == LanProto.goGame ? "中盘胜" : "胜")
         if game == LanProto.xiangqiGame { xiangqi?.resign(lostSeat == 1 ? .red : .black) }
@@ -598,6 +878,9 @@ final class LanGameSession {
             out["result"] = colorChar(winner) + "+R"
             out["blackScore"] = -1
             out["whiteScore"] = -1
+        }
+        if game == LanProto.gomokuGame {
+            out["result"] = colorChar(winner) + "+R"
         }
         return out
     }
@@ -632,7 +915,15 @@ final class LanGameSession {
     }
 
     func colorName(_ seat: Int) -> String {
-        game == LanProto.goGame ? LanProto.goColorName(seat) : LanProto.xqColorName(seat)
+        if game == LanProto.gomokuGame { return LanProto.goColorName(seat) }
+        if game == LanProto.banqiGame {
+            guard let g = banqi else { return seat == 1 ? "先手" : "后手" }
+            let c = g.colorOfSeat(seat)
+            if c == BanqiGame.red { return "红" }
+            if c == BanqiGame.black { return "黑" }
+            return seat == 1 ? "先手" : "后手"
+        }
+        return game == LanProto.goGame ? LanProto.goColorName(seat) : LanProto.xqColorName(seat)
     }
 }
 
@@ -787,6 +1078,9 @@ final class LanHub: ObservableObject {
 
     var goGame: GoGame? { session?.go }
     var xiangqiGame: XiangqiGame? { session?.xiangqi }
+    var gomokuGame: GomokuGame? { session?.gomoku }
+    var gomokuRenju: Bool { session?.gomoku?.isRenju ?? false }
+    var banqiGame: BanqiGame? { session?.banqi }
     var goBoard: [[GoColor]] { session?.go?.board ?? [] }
     var xiangqiBoard: [[XiangqiGame.Piece?]] { session?.xiangqi?.board ?? [] }
     var koPoint: GoPoint? { session?.go?.ko }
@@ -802,7 +1096,15 @@ final class LanHub: ObservableObject {
     }
 
     func colorName(_ seat: Int) -> String {
-        gameId == LanProto.xiangqiGame ? LanProto.xqColorName(seat) : LanProto.goColorName(seat)
+        if gameId == LanProto.gomokuGame { return LanProto.goColorName(seat) }
+        if gameId == LanProto.banqiGame {
+            guard let g = banqiGame else { return seat == 1 ? "先手" : "后手" }
+            let c = g.colorOfSeat(seat)
+            if c == BanqiGame.red { return "红" }
+            if c == BanqiGame.black { return "黑" }
+            return seat == 1 ? "先手" : "后手"
+        }
+        return gameId == LanProto.xiangqiGame ? LanProto.xqColorName(seat) : LanProto.goColorName(seat)
     }
 
     func myColorName() -> String { colorName(myColor) }
@@ -854,14 +1156,14 @@ final class LanHub: ObservableObject {
 
     func hostRoom(game: String, name: String, color: Int,
                   mainSec: Int, byoYomiSec: Int, periods: Int,
-                  hints: Bool = true) {
+                  hints: Bool = true, renju: Bool = false) {
         // 旧监听器的 socket 释放是异步的；先等它彻底停掉再绑端口，
         // 否则新房间会被迫顺延到 41235、41236……（曾一路漂到 41244）。
         let previousHost = host
         LanStage.mark("host.begin", "game=\(game) color=\(color) prevHost=\(previousHost != nil)")
         stop()
         role = .host
-        gameId = game == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
+        gameId = LanProto.normalizedGame(game)
         localName = Self.safe(name, localName)
         hostColor = color == 2 ? 2 : 1
         myColor = hostColor
@@ -875,6 +1177,8 @@ final class LanHub: ObservableObject {
 
         let newSession = LanGameSession(room: roomCode, game: gameId)
         newSession.reset(komi: gameId == LanProto.goGame ? LanProto.goKomi : 0)
+        // 禁手只对五子棋生效（与 Android LanHub.hostRoom 一致）
+        newSession.gomoku?.isRenju = renju && gameId == LanProto.gomokuGame
         session = newSession
         clock = LanClock(mainSec: self.mainSec, byoYomiSec: self.byoYomiSec, periods: self.periods)
 
@@ -1166,7 +1470,9 @@ final class LanHub: ObservableObject {
             "komi": newSession.komi,
             "handicap": 0,
             "handicapPoints": [],
-            "ruleset": gameId == LanProto.goGame ? "chinese-simple-ko" : "xiangqi",
+            "ruleset": gameId == LanProto.goGame ? "chinese-simple-ko"
+                : gameId == LanProto.gomokuGame ? "freestyle"
+                : gameId == LanProto.banqiGame ? "banqi" : "xiangqi",
             "toMove": newSession.colorChar(newSession.turn()),
             "seats": [
                 ["seat": 0, "name": localName, "color": newSession.colorChar(hostColor), "kind": "human"],
@@ -1180,7 +1486,8 @@ final class LanHub: ObservableObject {
                 "incrementSec": 0
             ],
             "startAtHostMs": LanProto.nowMs(),
-            "hints": hintsEnabled ? 1 : 0
+            "hints": hintsEnabled ? 1 : 0,
+            "renju": (newSession.gomoku?.isRenju ?? false) ? 1 : 0
         ]
 
         guard newHost.send(LanProto.message(LanMsg.gameStart, room: roomCode, from: "host", payload: payload)) else {
@@ -1212,6 +1519,29 @@ final class LanHub: ObservableObject {
     func requestXiangqiMove(fx: Int, fy: Int, tx: Int, ty: Int) -> Bool {
         guard state == .playing, gameId == LanProto.xiangqiGame else { return false }
         return submitMove(["fx": fx, "fy": fy, "tx": tx, "ty": ty])
+    }
+
+    func requestGomokuMove(x: Int, y: Int) -> Bool {
+        guard state == .playing, gameId == LanProto.gomokuGame else { return false }
+        return submitMove(["pass": false, "x": x, "y": y])
+    }
+
+    func requestBanqiMove(flip: Bool,
+                          x: Int = -1, y: Int = -1,
+                          fx: Int = -1, fy: Int = -1,
+                          tx: Int = -1, ty: Int = -1) -> Bool {
+        guard state == .playing, gameId == LanProto.banqiGame else { return false }
+        var m: [String: Any] = ["flip": flip]
+        if flip {
+            m["x"] = x
+            m["y"] = y
+        } else {
+            m["fx"] = fx
+            m["fy"] = fy
+            m["tx"] = tx
+            m["ty"] = ty
+        }
+        return submitMove(m)
     }
 
     @discardableResult
@@ -1269,6 +1599,8 @@ final class LanHub: ObservableObject {
         var payload: [String: Any] = [
             "moveNo": r.moveNo,
             "pass": r.pass,
+            "flip": r.flip,
+            "piece": r.piece,
             "x": r.x,
             "y": r.y,
             "fx": r.fx,
@@ -1496,11 +1828,12 @@ final class LanHub: ObservableObject {
             }
             joinAck = true
             let game = LanProto.string(p, "game", LanProto.goGame)
-            gameId = game == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
+            gameId = LanProto.normalizedGame(game)
             let gid = LanProto.string(p, "gameId")
             let newSession = LanGameSession(room: roomCode, game: gameId, matchId: gid)
             newSession.size = LanProto.int(p, "size", newSession.size)
             newSession.komi = LanProto.double(p, "komi", newSession.komi)
+            newSession.gomoku?.isRenju = LanProto.bool(p, "renju")
             session = newSession
             myColor = newSession.seatFromChar(LanProto.string(p, "yourColor", "W"))
             opponentName = LanProto.string(p, "opponentName", "对手")
@@ -1529,6 +1862,7 @@ final class LanHub: ObservableObject {
             gameId = session?.game ?? game
             session?.size = LanProto.int(p, "size", session?.size ?? boardSize)
             session?.reset(komi: komi)
+            session?.gomoku?.isRenju = LanProto.bool(p, "renju")
             scorePending = false
             pendingScore = nil
             // 房间规则由房主下发，客机只读
@@ -1667,6 +2001,7 @@ final class LanHub: ObservableObject {
                     "yourColor": session.colorChar(3 - hostColor),
                     "opponentName": localName,
                     "hints": hintsEnabled ? 1 : 0,
+                    "renju": (session.gomoku?.isRenju ?? false) ? 1 : 0,
                     "snapshot": session.snapshot()
                 ]
                 if let clock, clock.active { ack["clock"] = clock.snapshot(moveNo: session.moveNo) }
@@ -1693,7 +2028,10 @@ final class LanHub: ObservableObject {
             "opponentName": localName,
             "hostPlatform": "ios",
             "hints": hintsEnabled ? 1 : 0,
-            "ruleset": session.game == LanProto.goGame ? "chinese-simple-ko" : "xiangqi",
+            "renju": (session.gomoku?.isRenju ?? false) ? 1 : 0,
+            "ruleset": session.game == LanProto.goGame ? "chinese-simple-ko"
+                : session.game == LanProto.gomokuGame ? "freestyle"
+                : session.game == LanProto.banqiGame ? "banqi" : "xiangqi",
             "serverTime": LanProto.nowMs()
         ]
         guard host?.send(LanProto.message(LanMsg.helloAck, room: roomCode, from: "host", payload: ack)) == true else {
@@ -1783,10 +2121,16 @@ final class LanHub: ObservableObject {
     /// 终局音效：围棋、象棋都按胜负方分别播放喝彩/收束音，不再复用将军音。
     private func playGameOverSound() {
         let won: Bool?
-        if gameId == LanProto.goGame {
-            // 围棋：黑胜 B+… / 白胜 W+…
-            if resultCode.hasPrefix("B+") { won = myColor == 1 }
-            else if resultCode.hasPrefix("W+") { won = myColor == 2 }
+        if gameId == LanProto.goGame || gameId == LanProto.gomokuGame {
+            // 围棋 / 五子棋：seat 1 = 黑，2 = 白；结果以 B+/W+ 开头
+            if resultCode.hasPrefix("B") { won = myColor == 1 }
+            else if resultCode.hasPrefix("W") { won = myColor == 2 }
+            else { won = nil }
+        } else if gameId == LanProto.banqiGame {
+            // 暗棋：结果为获胜方颜色 red / black
+            let mine = session?.banqi?.colorOfSeat(myColor) ?? 0
+            if resultCode == "red" { won = mine == BanqiGame.red }
+            else if resultCode == "black" { won = mine == BanqiGame.black }
             else { won = nil }
         } else {
             // 象棋：红胜 R / 黑胜 B / draw

@@ -46,7 +46,9 @@ final class LanHost {
 
     init(roomCode: String, gameId: String, size: Int, hintsEnabled: Bool = true) {
         self.roomCode = roomCode
-        self.gameId = gameId == LanProto.xiangqiGame ? LanProto.xiangqiGame : LanProto.goGame
+        let known = [LanProto.goGame, LanProto.xiangqiGame,
+                     LanProto.gomokuGame, LanProto.banqiGame]
+        self.gameId = known.contains(gameId) ? gameId : LanProto.goGame
         self.size = size
         self.hintsEnabled = hintsEnabled
     }
@@ -278,7 +280,7 @@ final class LanHost {
         let value = port
         guard value > 0 else { return }
         let types = [LanProto.serviceTypeMDNS,
-                     gameId == LanProto.xiangqiGame ? "_qingyi-xiangqi._tcp." : "_qingyi-go._tcp."]
+                     "_qingyi-\(gameId)._tcp."]
         let name = serviceName
         let txt = LanProto.txtData(txtDict(port: value))
         NSLog("[LanHost] 公告 Bonjour port=%d addr=%@ types=%@ txt=%@",

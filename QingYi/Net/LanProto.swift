@@ -68,6 +68,16 @@ enum LanProto {
 
     static let goGame = "go"
     static let xiangqiGame = "xiangqi"
+    static let gomokuGame = "gomoku"
+    static let banqiGame = "banqi"
+
+    /// 未知/空值一律回落围棋；其余三种原样保留。
+    static func normalizedGame(_ raw: String) -> String {
+        switch raw {
+        case goGame, xiangqiGame, gomokuGame, banqiGame: return raw
+        default: return goGame
+        }
+    }
 
     static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -158,15 +168,24 @@ enum LanProto {
 
     // MARK: - 颜色
 
-    /// 座位/颜色整数：1=黑(围棋)/红(象棋)，2=白/黑
+    /// 座位/颜色整数：1=黑(围棋/五子棋)/红(象棋)/先手(暗棋)，2=白/黑/后手
     static func colorChar(game: String, seat: Int) -> String {
-        if game == goGame { return seat == 1 ? "B" : "W" }
+        if game == banqiGame { return seat == 1 ? "1" : "2" }
+        if game == goGame || game == gomokuGame { return seat == 1 ? "B" : "W" }
         return seat == 1 ? "R" : "B"
     }
 
     static func seatOfColorChar(game: String, _ text: String) -> Int? {
         let t = text.uppercased()
-        if game == goGame {
+        if game == banqiGame {
+            if t == "1" { return 1 }
+            if t == "2" { return 2 }
+            // 兼容旧字段：B 当作先手，W 当作后手
+            if t == "B" { return 1 }
+            if t == "W" { return 2 }
+            return nil
+        }
+        if game == goGame || game == gomokuGame {
             if t == "B" { return 1 }
             if t == "W" { return 2 }
             return nil
@@ -183,7 +202,12 @@ enum LanProto {
     static func xqColorName(_ color: Int) -> String { color == 1 ? "红" : "黑" }
 
     static func gameName(_ game: String) -> String {
-        game == xiangqiGame ? "象棋" : "围棋"
+        switch game {
+        case xiangqiGame: return "象棋"
+        case gomokuGame: return "五子棋"
+        case banqiGame: return "暗棋"
+        default: return "围棋"
+        }
     }
 
     // MARK: - TXT 记录
@@ -364,7 +388,7 @@ enum LanUdpTypes {
 
     /// 两端字段对照（诊断区直接展示，方便逐个字符比对）
     static let fieldTable = "t:String(room_query|room_reply|room_announce) "
-        + "room:String(4位数字) game:String(go|xiangqi) port:Int size:String(19|9) "
+        + "room:String(4位数字) game:String(go|xiangqi|gomoku|banqi) port:Int size:String(19|9) "
         + "addr:String iid:String name:String v:Int"
 
     /// 房主广播 / 应答的唯一构造入口。
@@ -425,10 +449,50 @@ enum LanResultText {
         let r = reason.trimmingCharacters(in: .whitespaces)
         let d = detail.trimmingCharacters(in: .whitespaces)
         guard !c.isEmpty else { return d.isEmpty ? "对局结束" : d }
+        if gameId == LanProto.gomokuGame { return gomokuResult(code: c.uppercased(), reason: r, detail: d) }
+        if gameId == LanProto.banqiGame { return banqiResult(code: c.lowercased(), reason: r, detail: d) }
         let xiangqi = gameId == LanProto.xiangqiGame
         if c.lowercased() == "draw" { return xiangqi ? xiangqiDraw(d) : "和棋" }
         return xiangqi ? xiangqiWin(code: c.uppercased(), reason: r, detail: d)
                        : goResult(code: c.uppercased(), reason: r, detail: d)
+    }
+
+    /// 五子棋：B/W + "+5" / "+R" / "+T"（与 Android GomokuRules 一致）
+    private static func gomokuResult(code: String, reason: String, detail: String) -> String {
+        if code.lowercased() == "draw" { return detail.isEmpty ? "和棋" : detail }
+        guard let flag = code.first, flag == "B" || flag == "W" else {
+            return detail.isEmpty ? "对局结束" : detail
+        }
+        let winner = flag == "B" ? "黑方" : "白方"
+        let loser = flag == "B" ? "白方" : "黑方"
+        switch reason.lowercased() {
+        case "resign": return "\(winner)胜（\(loser)认输）"
+        case "timeout": return "\(winner)胜（\(loser)超时判负）"
+        case "disconnect": return "\(winner)胜（\(loser)断线判负）"
+        default: break
+        }
+        let tag = String(code.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        if tag.uppercased() == "R" { return "\(winner)胜（\(loser)认输）" }
+        if tag.uppercased() == "T" { return "\(winner)胜（\(loser)超时判负）" }
+        if !detail.isEmpty { return detail }
+        return "\(winner)五连获胜"
+    }
+
+    /// 暗棋：red / black / draw，文案优先用终局原因（认输/超时/断线/无子可动）
+    private static func banqiResult(code: String, reason: String, detail: String) -> String {
+        if code == "draw" { return detail.isEmpty ? "和棋" : detail }
+        guard code == "red" || code == "black" else {
+            return detail.isEmpty ? "对局结束" : detail
+        }
+        let winner = code == "red" ? "红方" : "黑方"
+        let loser = code == "red" ? "黑方" : "红方"
+        switch reason.lowercased() {
+        case "resign": return "\(winner)胜（\(loser)认输）"
+        case "timeout": return "\(winner)胜（\(loser)超时判负）"
+        case "disconnect": return "\(winner)胜（\(loser)断线判负）"
+        default: break
+        }
+        return detail.isEmpty ? "\(winner)胜" : detail
     }
 
     static func reasonLabel(_ reason: String) -> String {

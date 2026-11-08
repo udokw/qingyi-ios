@@ -3,6 +3,27 @@ import SwiftUI
 enum GameKind: String {
     case go
     case xiangqi
+    case gomoku
+    case banqi
+
+    /// 与 Android `GameAdapter` 的 game 字段一致。
+    var lanID: String {
+        switch self {
+        case .go: return LanProto.goGame
+        case .xiangqi: return LanProto.xiangqiGame
+        case .gomoku: return LanProto.gomokuGame
+        case .banqi: return LanProto.banqiGame
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .go: return "围棋"
+        case .xiangqi: return "象棋"
+        case .gomoku: return "五子棋"
+        case .banqi: return "暗棋"
+        }
+    }
 }
 
 final class AppState: ObservableObject {

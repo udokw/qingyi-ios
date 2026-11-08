@@ -21,6 +21,7 @@ struct LanLobbyView: View {
     @State private var hostColor = 1
     @State private var timed = true
     @State private var hints = true
+    @State private var renju = false
     @State private var localError = ""
     @State private var selfTestBusy = false
     @State private var selfTestReport = ""
@@ -31,14 +32,18 @@ struct LanLobbyView: View {
     @State private var copiedHint = ""
 
     private var theme: Theme { app.theme }
-    private var gameId: String { game == .go ? LanProto.goGame : LanProto.xiangqiGame }
+    private var gameId: String { game.lanID }
 
     var body: some View {
         ZStack {
             PaperBackground(theme: theme)
 
             if hub.state == .playing || hub.state == .finished {
-                LanGameView(game: game)
+                switch game {
+                case .gomoku: LanGomokuGameView()
+                case .banqi: LanBanqiGameView()
+                default: LanGameView(game: game)
+                }
             } else {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {
@@ -197,9 +202,18 @@ struct LanLobbyView: View {
             }
             CheckRow(title: "20 分钟 + 读秒 30 秒 × 3", checked: timed, theme: theme) { timed = true }
             CheckRow(title: "不计时", checked: !timed, theme: theme) { timed = false }
-            if gameId == LanProto.xiangqiGame {
-                CheckRow(title: "落点提示与可吃子提示（房间规则）", checked: hints, theme: theme) {
+            // 围棋没有提示；象棋为吃子提示，五子棋为 AI 落点提示（与 Android 一致）
+            if gameId != LanProto.goGame {
+                CheckRow(title: gameId == LanProto.gomokuGame
+                            ? "允许 AI 提示"
+                            : "落点提示与可吃子提示",
+                         checked: hints, theme: theme) {
                     hints.toggle()
+                }
+            }
+            if gameId == LanProto.gomokuGame {
+                CheckRow(title: "黑棋禁手（连珠）", checked: renju, theme: theme) {
+                    renju.toggle()
                 }
             }
             ThemedActionButton(title: "创建房间", kind: .primary, theme: theme) {
@@ -208,7 +222,8 @@ struct LanLobbyView: View {
                              mainSec: timed ? 1200 : 0,
                              byoYomiSec: timed ? 30 : 0,
                              periods: timed ? 3 : 0,
-                             hints: hints)
+                             hints: hints,
+                             renju: renju)
             }
             Button {
                 runSelfTest()
@@ -234,9 +249,14 @@ struct LanLobbyView: View {
     }
 
     private func colorOptionTitle(_ seat: Int) -> String {
-        gameId == LanProto.goGame
-            ? (seat == 1 ? "执黑先行" : "执白后行")
-            : (seat == 1 ? "执红先行" : "执黑后行")
+        if gameId == LanProto.goGame {
+            return seat == 1 ? "执黑先行" : "执白后行"
+        }
+        if gameId == LanProto.xiangqiGame {
+            return seat == 1 ? "执红先行" : "执黑后行"
+        }
+        // 五子棋 / 暗棋：与 Android 共享大厅一致（暗棋颜色随机，只表示先/后手）
+        return seat == 1 ? "执黑" : "执白"
     }
 
     // MARK: - 加入

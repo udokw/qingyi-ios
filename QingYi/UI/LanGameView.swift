@@ -261,7 +261,7 @@ struct LanGameView: View {
                        boardTop: boardTop, stateTop: stateTop, controlsTop: controlsTop)
     }
 
-    private var gameIdText: String { hub.gameId.isEmpty ? (game == .go ? LanProto.goGame : LanProto.xiangqiGame) : hub.gameId }
+    private var gameIdText: String { hub.gameId.isEmpty ? game.lanID : hub.gameId }
 
     private var statusText: String {
         if hub.state == .finished { return "对局结束" }

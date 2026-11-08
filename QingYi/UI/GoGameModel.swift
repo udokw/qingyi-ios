@@ -6,6 +6,9 @@ struct GameAlert: Identifiable {
     var title: String
     var message: String
     var confirmTitle: String?
+    /// 否定按钮文案；nil 时沿用「取消 / 返回主页」的默认规则。
+    var cancelTitle: String?
+    var onCancel: (() -> Void)?
     var onConfirm: (() -> Void)?
 }
 

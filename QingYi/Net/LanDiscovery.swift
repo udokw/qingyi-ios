@@ -23,7 +23,11 @@ struct LanRoom: Identifiable {
 
     var id: String { iid.isEmpty ? name : iid }
 
-    var boardText: String { game == LanProto.xiangqiGame ? "9 × 10" : "\(size) 路" }
+    var boardText: String {
+        if game == LanProto.xiangqiGame { return "9 × 10" }
+        if game == LanProto.banqiGame { return "4 × 8" }
+        return "\(size) 路"
+    }
     var gameLabel: String { LanProto.gameName(game) }
 }
 

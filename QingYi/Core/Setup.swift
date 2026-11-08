@@ -25,6 +25,25 @@ struct XiangqiSetup: Identifiable, Equatable {
     var recordURL: URL?
 }
 
+/// 五子棋：默认 19 路、黑先、五档 AI、禁手默认关（与 Android 一致）。
+struct GomokuSetup: Identifiable, Equatable {
+    let id = UUID()
+    var mode: PlayMode = .ai
+    /// 1 = 黑，2 = 白
+    var playerColor: Int = GomokuGame.black
+    var level: Int = 3
+    var renju: Bool = false
+    var hints: Bool = true
+}
+
+/// 暗棋：默认 5 段、执先手、红黑随机（与 Android 一致）。
+struct BanqiSetup: Identifiable, Equatable {
+    let id = UUID()
+    var mode: PlayMode = .ai
+    var first: Bool = true
+    var level: Int = 5
+}
+
 struct GoRecord: Identifiable {
     let id = UUID()
     let url: URL

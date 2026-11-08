@@ -5,12 +5,19 @@ struct MainView: View {
     @EnvironmentObject private var app: AppState
     @State private var goSetup: GoSetup?
     @State private var xqSetup: XiangqiSetup?
+    @State private var gomokuSetup: GomokuSetup?
+    @State private var banqiSetup: BanqiSetup?
     @State private var showGoConfig = false
     @State private var showXqConfig = false
+    @State private var showGomokuConfig = false
     @State private var showLibrary = false
     @State private var lanKind: GameKind?
     @State private var pendingGo: GoSetup?
     @State private var pendingXQ: XiangqiSetup?
+    @State private var pendingGMK: GomokuSetup?
+    @State private var pendingBQ: BanqiSetup?
+    @State private var localDialogKind: GameKind?
+    @State private var rulesKind: GameKind?
 
     private var theme: Theme { app.theme }
 
@@ -35,7 +42,7 @@ struct MainView: View {
                         titleRow
                             .padding(.top, 12)
 
-                        Text("内置引擎 · 围棋与象棋")
+                        Text("多引擎 · 围棋、象棋、五子棋与暗棋")
                             .font(.system(size: 14))
                             .tracking(1.7)
                             .foregroundColor(theme.sub)
@@ -83,9 +90,21 @@ struct MainView: View {
                 .transition(.opacity)
                 .zIndex(3)
             }
+
+            if showGomokuConfig {
+                GomokuConfigDialog(theme: theme) { setup in
+                    showGomokuConfig = false
+                    pendingGMK = setup
+                } onCancel: {
+                    showGomokuConfig = false
+                }
+                .transition(.opacity)
+                .zIndex(3)
+            }
         }
         .animation(.easeInOut(duration: 0.18), value: showGoConfig)
         .animation(.easeInOut(duration: 0.18), value: showXqConfig)
+        .animation(.easeInOut(duration: 0.18), value: showGomokuConfig)
         .sheet(isPresented: $showLibrary) {
             LibraryView(theme: theme, kind: app.kind) { url in
                 showLibrary = false
@@ -104,6 +123,39 @@ struct MainView: View {
             LanLobbyView(game: kind)
                 .environmentObject(app)
         }
+        .fullScreenCover(item: $gomokuSetup) { setup in
+            GomokuGameView(setup: setup)
+                .environmentObject(app)
+        }
+        .fullScreenCover(item: $banqiSetup) { setup in
+            BanqiGameView(setup: setup)
+                .environmentObject(app)
+        }
+        .confirmationDialog("双人对弈", isPresented: Binding(
+            get: { localDialogKind != nil },
+            set: { if !$0 { localDialogKind = nil } }
+        ), titleVisibility: .visible) {
+            Button("同机对弈") {
+                let kind = localDialogKind
+                localDialogKind = nil
+                if let kind { startLocal(kind) }
+            }
+            Button("局域网联机") {
+                let kind = localDialogKind
+                localDialogKind = nil
+                if let kind { lanKind = kind }
+            }
+            Button("取消", role: .cancel) { localDialogKind = nil }
+        }
+        .alert(rulesKind == .banqi ? "暗棋 · 玩法说明" : "五子棋 · 玩法说明",
+               isPresented: Binding(
+                get: { rulesKind != nil },
+                set: { if !$0 { rulesKind = nil } }
+               )) {
+            Button("知道了", role: .cancel) { rulesKind = nil }
+        } message: {
+            Text(rulesKind == .banqi ? MainView.banqiRules : MainView.gomokuRules)
+        }
         .onChange(of: pendingGo) { value in
             guard let value else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -118,7 +170,47 @@ struct MainView: View {
                 pendingXQ = nil
             }
         }
+        .onChange(of: pendingGMK) { value in
+            guard let value else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                gomokuSetup = value
+                pendingGMK = nil
+            }
+        }
+        .onChange(of: pendingBQ) { value in
+            guard let value else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                banqiSetup = value
+                pendingBQ = nil
+            }
+        }
     }
+
+    private func startLocal(_ kind: GameKind) {
+        switch kind {
+        case .go: pendingGo = GoSetup(mode: .local)
+        case .xiangqi: pendingXQ = XiangqiSetup(mode: .local)
+        case .gomoku: pendingGMK = GomokuSetup(mode: .local)
+        case .banqi: pendingBQ = BanqiSetup(mode: .local)
+        }
+    }
+
+    static let gomokuRules = "19 路棋盘，黑先。\n"
+        + "横、竖、斜任意方向先连成五子（含五子以上）即胜。\n"
+        + "默认无禁手（freestyle），不设三三、四四、长连限制。\n"
+        + "可在开局对话框或对局页切换「黑棋禁手」，按连珠规则禁止黑棋长连、四四、三三；白棋无禁手，成五优先判胜。\n"
+        + "棋盘下满仍未分胜负为和棋。\n\n"
+        + "人机对弈提供五档难度，可开启 AI 落点提示；\n"
+        + "本地双人同机轮流；局域网联机由房主统一裁决。"
+
+    static let banqiRules = "4 × 8 棋盘，32 枚棋子全部背朝上，先手先翻。\n"
+        + "每回合二选一：翻任意一枚暗子，或走一格己方明子（可吃子）。\n"
+        + "首翻定色：先手翻出的颜色归先手，另一方执另一色。\n"
+        + "军衔：將 > 士 > 象 > 車 > 馬 > 炮 > 卒，同级可互吃；\n"
+        + "卒可吃將，將不能吃卒。\n"
+        + "炮走一格空格，吃子必须隔恰好一枚炮架跳吃。\n\n"
+        + "无合法步判负；连续 30 步无吃子无翻子判和；\n"
+        + "同一局面出现三次判和。联机时暗子身份只由房主裁决。"
 
     // MARK: - 主题切换（右上角）
 
@@ -161,6 +253,8 @@ struct MainView: View {
         HStack(spacing: 0) {
             segmentButton(kind: .go, title: "围棋")
             segmentButton(kind: .xiangqi, title: "象棋")
+            segmentButton(kind: .gomoku, title: "五子棋")
+            segmentButton(kind: .banqi, title: "暗棋")
         }
         .padding(3)
         .frame(height: 40)
@@ -200,53 +294,68 @@ struct MainView: View {
                 entryRow(1, entryTitle(1), entryDesc(1)) { openEntry(1) }
                 Hairline(color: theme.divider)
                 entryRow(2, entryTitle(2), entryDesc(2)) { openEntry(2) }
-                Hairline(color: theme.divider)
-                entryRow(3, entryTitle(3), entryDesc(3)) { openEntry(3) }
             }
         } else {
             VStack(spacing: 17) {
                 entryCard(0, entryTitle(0), entryDesc(0), leading: 0, trailing: 24) { openEntry(0) }
                 entryCard(1, entryTitle(1), entryDesc(1), leading: 14, trailing: 14) { openEntry(1) }
                 entryCard(2, entryTitle(2), entryDesc(2), leading: 24, trailing: 0) { openEntry(2) }
-                entryCard(3, entryTitle(3), entryDesc(3), leading: 14, trailing: 14) { openEntry(3) }
             }
         }
     }
 
     private func entryTitle(_ index: Int) -> String {
         if index == 0 { return "人机对弈" }
-        if index == 1 { return "本地双人" }
-        if index == 2 { return "联机对弈" }
-        return app.kind == .go ? "棋谱欣赏" : "棋谱复盘"
+        if index == 1 {
+            return app.kind == .go ? "双人对弈" : "本地双人"
+        }
+        switch app.kind {
+        case .go: return "棋谱欣赏"
+        case .xiangqi: return "棋谱复盘"
+        default: return "玩法说明"
+        }
     }
 
     private func entryDesc(_ index: Int) -> String {
         if index == 0 {
-            return app.kind == .go
-                ? "内置引擎 · 等级 1-10 · 让子可调"
-                : "内置引擎 · 等级 1-10 · 红黑任选"
+            switch app.kind {
+            case .go: return "内置引擎 · 等级 1-10 · 让子可调"
+            case .xiangqi: return "内置引擎 · 等级 1-10 · 红黑任选"
+            case .gomoku: return "自研棋型 AI · 五档难度 · 可提示"
+            case .banqi: return "自研暗棋 AI · 五档难度"
+            }
         }
         if index == 1 {
-            return app.kind == .go ? "两人同机对弈" : "红黑双方同机对弈"
+            switch app.kind {
+            case .go: return "同机对局 · 局域网联机"
+            case .xiangqi: return "同机对弈 · 局域网联机"
+            default: return "同机轮流 · 局域网联机"
+            }
         }
-        if index == 2 {
-            return app.kind == .go
-                ? "同一局域网 · 房号或 IP 加入"
-                : "同一局域网 · 红黑对坐"
+        switch app.kind {
+        case .go: return "内置棋谱 · 支持导入 SGF"
+        case .xiangqi: return "导入 PGN / FEN 逐步打谱"
+        case .gomoku: return "无禁手 · 黑先 · 五连即胜"
+        case .banqi: return "军衔 · 翻子 · 炮隔子吃"
         }
-        return app.kind == .go ? "内置棋谱 · 支持导入 SGF" : "导入 PGN / FEN 逐步打谱"
     }
 
     private func openEntry(_ index: Int) {
         if index == 0 {
-            if app.kind == .go { showGoConfig = true } else { showXqConfig = true }
+            switch app.kind {
+            case .go: showGoConfig = true
+            case .xiangqi: showXqConfig = true
+            case .gomoku: showGomokuConfig = true
+            case .banqi: pendingBQ = BanqiSetup(mode: .ai, first: true, level: 5)
+            }
         } else if index == 1 {
-            if app.kind == .go { pendingGo = GoSetup(mode: .local) }
-            else { pendingXQ = XiangqiSetup(mode: .local) }
-        } else if index == 2 {
-            lanKind = app.kind
+            localDialogKind = app.kind
         } else {
-            showLibrary = true
+            if app.kind == .go || app.kind == .xiangqi {
+                showLibrary = true
+            } else {
+                rulesKind = app.kind
+            }
         }
     }
 
@@ -743,5 +852,87 @@ struct LibraryView: View {
             .foregroundColor(theme.foot)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 26)
+    }
+}
+
+// MARK: - 五子棋人机设置
+
+struct GomokuConfigDialog: View {
+    var theme: Theme
+    var onStart: (GomokuSetup) -> Void
+    var onCancel: () -> Void
+
+    @State private var black = true
+    @State private var level: Double = 3
+    @State private var hints = true
+    @State private var renju = false
+
+    var body: some View {
+        DialogScaffold(title: "人机对弈 · 五子棋", theme: theme, onDismiss: onCancel) {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("自研棋型 AI · 五档难度")
+                    .font(.system(size: 13))
+                    .foregroundColor(theme.sub)
+
+                section("难度  \(GomokuAi.levelName(Int(level)))") {
+                    ThemedSlider(value: $level, range: 1...5, step: 1, theme: theme)
+                        .padding(.top, 2)
+                }
+
+                section("执子") {
+                    HStack(spacing: 10) {
+                        choice("执黑 · 先手", selected: black) { black = true }
+                        choice("执白 · 后手", selected: !black) { black = false }
+                    }
+                }
+
+                CheckRow(title: "落点提示", checked: hints, theme: theme) { hints.toggle() }
+                CheckRow(title: "黑棋禁手（连珠）", checked: renju, theme: theme) { renju.toggle() }
+
+                Hairline(color: theme.dlgLine)
+
+                HStack(spacing: 12) {
+                    ThemedActionButton(title: "取消", theme: theme, action: onCancel)
+                    ThemedActionButton(title: "开始对弈", kind: .primary, theme: theme) {
+                        var setup = GomokuSetup(mode: .ai)
+                        setup.playerColor = black ? GomokuGame.black : GomokuGame.white
+                        setup.level = Int(level)
+                        setup.renju = renju
+                        setup.hints = hints
+                        onStart(setup)
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundColor(theme.sub)
+            content()
+        }
+    }
+
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundColor(selected ? theme.btnText : theme.sub)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: theme.isHara ? 2 : 14)
+                        .fill(selected ? (theme.isHara ? Color.white : theme.btnBg) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: theme.isHara ? 2 : 14)
+                        .stroke(selected ? theme.title : theme.btnStroke, lineWidth: 0.8)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

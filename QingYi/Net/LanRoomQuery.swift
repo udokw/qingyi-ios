@@ -616,7 +616,8 @@ final class LanUdpDiscovery {
 
         let game = (obj["game"] as? String) ?? LanProto.goGame
         let size = (obj["size"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            ?? (game == LanProto.xiangqiGame ? "9" : "19")
+            ?? (game == LanProto.xiangqiGame ? "9"
+                : (game == LanProto.banqiGame ? "32" : "19"))
         let iid = (obj["iid"] as? String) ?? ""
         let name = (obj["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "QY-\(code)-\(size)"
         let now = LanProto.uptimeMs()
