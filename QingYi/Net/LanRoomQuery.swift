@@ -102,6 +102,8 @@ final class LanQueryResponder {
     private let lock = NSLock()
     private var fd: Int32 = -1
     private var running = false
+    /// bind 失败时仍保留 socket 用于发送广播通告，只是不再收包
+    private var canReceive = true
     private var room: String
     private var game: String
     private var iid: String
@@ -128,6 +130,10 @@ final class LanQueryResponder {
     /// 用 BSD UDP socket 直接监听 41235。之前用 NWListener(.udp) 在本机实测会进入
     /// EINVAL(22) 且没有日志，房号查询因此静默失效；BSD socket 行为可预测、错误码可打印。
     func start() {
+        LanDiagnostics.shared.update {
+            $0.udpStatus = "启动中"
+            $0.udpListen = "尝试 bind 0.0.0.0:\(LanProto.queryPort)"
+        }
         queue.async { [weak self] in
             guard let self else { return }
             self.lock.lock()
@@ -136,6 +142,9 @@ final class LanQueryResponder {
             guard s >= 0 else {
                 let e = errno
                 NSLog("[LanQuery] socket() 失败 POSIX \(e) \(String(cString: strerror(e)))")
+                LanDiagnostics.shared.update {
+                    $0.udpStatus = "socket() 失败 POSIX \(e)"
+                }
                 self.lock.unlock()
                 return
             }
@@ -157,14 +166,34 @@ final class LanQueryResponder {
             guard bound == 0 else {
                 let e = errno
                 NSLog("[LanQuery] bind \(LanProto.queryPort) 失败 POSIX \(e) \(String(cString: strerror(e)))")
-                close(s)
+                // 收不到广播时不能让房主变成「完全不可被发现」：
+                // 继续用这个未绑定的 socket 发通告（发送不需要 bind 端口），
+                // 只是无法应答 room_query。诊断区会把这两种能力分开显示。
+                self.lock.lock()
+                self.fd = s
+                self.running = true
+                self.canReceive = false
                 self.lock.unlock()
-                return
+                LanDiagnostics.shared.update {
+                    $0.udpStatus = "bind 失败 POSIX \(e)（仅广播通告，无法应答查询）"
+                    $0.udpListen = "0.0.0.0:\(LanProto.queryPort) 未绑定"
+                    $0.udpOptions = "SO_REUSEADDR=1 SO_BROADCAST=1（发送正常）"
+                }
+                LanLog.shared.add("UDP 41235 bind 失败", ok: false,
+                                  "POSIX \(e) \(String(cString: strerror(e)))：继续以单向广播通告兜底")
+            } else {
+                self.fd = s
+                self.running = true
+                self.canReceive = true
+                self.lock.unlock()
+                NSLog("[LanQuery] UDP 应答器已监听 %d", Int(LanProto.queryPort))
+                LanDiagnostics.shared.update {
+                    $0.udpStatus = "已监听"
+                    $0.udpListen = "0.0.0.0:\(LanProto.queryPort)（可收 255.255.255.255 广播）"
+                    $0.udpOptions = "SO_REUSEADDR=1 SO_BROADCAST=1 SO_RCVTIMEO=300ms"
+                }
+                LanLog.shared.add("UDP 41235 已监听", ok: true, "0.0.0.0:\(LanProto.queryPort)")
             }
-            self.fd = s
-            self.running = true
-            self.lock.unlock()
-            NSLog("[LanQuery] UDP 应答器已监听 %d", Int(LanProto.queryPort))
 
             var buffer = [UInt8](repeating: 0, count: 2048)
             var lastAnnounce: Int64 = 0
@@ -184,21 +213,26 @@ final class LanQueryResponder {
                     let iid = self.iid, addr = self.addr, size = self.size, named = self.displayName
                     self.lock.unlock()
                     if port > 0 {
-                        let announce: [String: Any] = [
-                            "t": LanProto.roomAnnounceType,
-                            "room": room,
-                            "game": game,
-                            "port": Int(port),
-                            "addr": addr,
-                            "iid": iid,
-                            "size": size,
-                            "name": named,
-                            "v": LanProto.version
-                        ]
-                        if let out = try? JSONSerialization.data(withJSONObject: announce) {
-                            for host in LanProto.broadcastAddresses() {
+                        // 唯一构造入口：房主只会构造 announce / reply，
+                        // 从代码层面杜绝「房主发出 room_query」这类角色错位。
+                        let announce = LanUdpTypes.hostAnswerPayload(
+                            LanUdpTypes.announce,
+                            room: room, game: game, port: port,
+                            addr: addr, iid: iid, size: size, name: named)
+                        if let out = try? JSONSerialization.data(withJSONObject: announce),
+                           let json = String(data: out, encoding: .utf8) {
+                            let targets = LanProto.broadcastAddresses()
+                            for host in targets {
                                 LanUdpSend.to(out, host: host, port: LanProto.queryPort, fd: s)
                             }
+                            LanDiagnostics.shared.update {
+                                $0.sentAnnounces += targets.count
+                                $0.lastEvent = "room_announce → \(targets.joined(separator: ",")):\(LanProto.queryPort)"
+                            }
+                            LanLog.shared.add("发送 room_announce", ok: true,
+                                              "→ \(targets.joined(separator: ",")):\(LanProto.queryPort) body=\(json)")
+                        } else {
+                            LanLog.shared.add("构造 room_announce 失败", ok: false, "")
                         }
                     }
                 }
@@ -214,8 +248,23 @@ final class LanQueryResponder {
                 }
                 if n <= 0 { continue }
                 let body = Data(buffer[0..<n])
-                guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-                      (obj["t"] as? String) == LanProto.roomQueryType else { continue }
+                let text = String(data: body, encoding: .utf8) ?? "<非 UTF-8 \(n) 字节>"
+                guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+                    LanLog.shared.add("UDP 收到无法解析的包", ok: false, "body=\(text)")
+                    continue
+                }
+                let rawType = obj["t"] as? String ?? ""
+                let fromHost0 = LanUdpSend.addrString(from.sin_addr)
+                let fromPort0 = Int(UInt16(bigEndian: from.sin_port))
+                LanLog.shared.add("UDP 收到", ok: nil,
+                                  "\(fromHost0):\(fromPort0) t=\(rawType) len=\(n) body=\(text)")
+                guard LanUdpTypes.kind(obj["t"]) == LanUdpTypes.query else {
+                    // 安卓端的「类型不是应答/通告」诊断对应的就是这里——
+                    // 把收到的原样打出来，才能判断到底是别名不一致还是别的东西占了端口。
+                    LanLog.shared.add("忽略非查询包", ok: false,
+                                      "t=\(rawType) 来自 \(fromHost0):\(fromPort0) body=\(text)")
+                    continue
+                }
 
                 self.lock.lock()
                 let room = self.room, game = self.game, iid = self.iid
@@ -227,6 +276,11 @@ final class LanQueryResponder {
                 let fromPort = Int(UInt16(bigEndian: from.sin_port))
                 NSLog("[LanQuery] 收到 room_query room=%@ 来自 %@:%d（本房 %@ game=%@ tcp=%d）",
                       requested, fromHost, fromPort, room, game, Int(port))
+                LanDiagnostics.shared.update {
+                    $0.recvQueries += 1
+                    $0.lastFrom = "\(fromHost):\(fromPort)"
+                    $0.lastEvent = "room_query（room=\(requested.isEmpty ? "空" : requested)）"
+                }
                 // 空房号 = 附近房间列表的广播探测，任何房主都应答；
                 // 非空房号 = 「只填房号」的定向查询，只答匹配的房间。
                 guard requested.isEmpty || requested == room, port > 0 else {
@@ -235,18 +289,12 @@ final class LanQueryResponder {
                     continue
                 }
 
-                let reply: [String: Any] = [
-                    "t": LanProto.roomReplyType,
-                    "room": room,
-                    "game": game,
-                    "port": Int(port),
-                    "addr": addr,
-                    "iid": iid,
-                    "size": size,
-                    "name": displayName,
-                    "v": LanProto.version
-                ]
-                guard let out = try? JSONSerialization.data(withJSONObject: reply) else { continue }
+                let reply = LanUdpTypes.hostAnswerPayload(
+                    LanUdpTypes.reply,
+                    room: room, game: game, port: port,
+                    addr: addr, iid: iid, size: size, name: displayName)
+                guard let out = try? JSONSerialization.data(withJSONObject: reply),
+                      let replyJSON = String(data: out, encoding: .utf8) else { continue }
                 let sent: Int = out.withUnsafeBytes { raw in
                     withUnsafePointer(to: &from) { fp in
                         fp.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
@@ -256,6 +304,12 @@ final class LanQueryResponder {
                 }
                 NSLog("[LanQuery] 已回 room_reply room=%@ port=%d addr=%@ → %@:%d（%d 字节）",
                       room, Int(port), addr.isEmpty ? "(空)" : addr, fromHost, fromPort, sent)
+                LanLog.shared.add("回复 room_reply", ok: sent > 0,
+                                  "→ \(fromHost):\(fromPort) sent=\(sent) body=\(replyJSON)")
+                LanDiagnostics.shared.update {
+                    $0.sentReplies += 1
+                    $0.lastEvent = "room_reply → \(fromHost):\(fromPort)（\(sent) 字节）"
+                }
             }
             close(s)
         }
@@ -384,10 +438,14 @@ final class LanUdpDiscovery {
                         "room": "",
                         "v": LanProto.version
                     ]
-                    if let out = try? JSONSerialization.data(withJSONObject: payload) {
-                        for host in LanProto.broadcastAddresses() {
+                    if let out = try? JSONSerialization.data(withJSONObject: payload),
+                       let json = String(data: out, encoding: .utf8) {
+                        let targets = LanProto.broadcastAddresses()
+                        for host in targets {
                             LanUdpSend.to(out, host: host, port: LanProto.queryPort, fd: s)
                         }
+                        LanLog.shared.add("发送 room_query", ok: nil,
+                                          "→ \(targets.joined(separator: ",")):\(LanProto.queryPort) body=\(json)")
                     }
                 }
 
@@ -422,12 +480,25 @@ final class LanUdpDiscovery {
     }
 
     private func ingest(_ body: Data, from: sockaddr_in) {
-        guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return }
-        let type = obj["t"] as? String ?? ""
-        guard type == LanProto.roomReplyType || type == LanProto.roomAnnounceType else { return }
+        let text = String(data: body, encoding: .utf8) ?? "<非 UTF-8>"
+        guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+            LanLog.shared.add("发现：无法解析的 UDP 包", ok: false, "body=\(text)")
+            return
+        }
+        let rawType = obj["t"] as? String ?? ""
+        let kind = LanUdpTypes.kind(obj["t"])
+        LanLog.shared.add("发现：收到 UDP 包", ok: nil, "t=\(rawType) 原文=\(text)")
+        guard kind == LanUdpTypes.reply || kind == LanUdpTypes.announce else {
+            LanLog.shared.add("发现：忽略非应答/通告包", ok: false, "t=\(rawType)")
+            return
+        }
         let code = LanProto.normalizeRoomCode(obj["room"] as? String ?? "")
         let portValue = (obj["port"] as? NSNumber)?.intValue ?? 0
-        guard !code.isEmpty, portValue > 0, portValue < 65536, let port = UInt16(exactly: portValue) else { return }
+        guard !code.isEmpty, portValue > 0, portValue < 65536, let port = UInt16(exactly: portValue) else {
+            LanLog.shared.add("发现：丢弃报文", ok: false,
+                              "room=\(code) port=\(portValue) body=\(text)")
+            return
+        }
         // 源地址优先：这正是「手动填 IP」用的那个地址
         var host = LanUdpSend.addrString(from.sin_addr)
         if host.isEmpty { host = (obj["addr"] as? String ?? "").trimmingCharacters(in: .whitespaces) }
@@ -443,7 +514,7 @@ final class LanUdpDiscovery {
         let key = iid.isEmpty ? "\(code)@\(host):\(port)" : iid
 
         if rooms[key] == nil {
-            NSLog("[LanUDP] 收到 \(type)：房号 \(code) \(game) \(host):\(port)")
+            NSLog("[LanUDP] 收到 \(rawType)：房号 \(code) \(game) \(host):\(port)")
         }
         rooms[key] = LanRoom(name: name,
                              code: code,

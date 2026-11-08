@@ -301,18 +301,23 @@ struct PaperBackground: View {
 /// 棋盘边长、动作行行高、左右留白只在这里写一次：联机页不再另写一组数值，
 /// 单机页的 `frame(height:)` 也改成引用同一个常量，避免两页再次跑偏。
 enum GameLayout {
-    /// 页面左右留白（棋盘左右各 6pt）
+    /// 页面左右留白（文字行、动作区各 6pt）
     static let columnInset: CGFloat = 6
+    /// 棋盘左右留白：比文字行更窄，让棋盘尽量铺满屏宽。
+    /// 单机页用 `boardBleed` 把棋盘从文字行的 6pt 留白里向外顶出去，
+    /// 联机页直接用这个值做 padding —— 两页仍然是同一个来源、同一个尺寸。
+    static let boardInset: CGFloat = 2
+    /// 单机页棋盘需要向外顶出的距离（= 文字行留白 − 棋盘留白）
+    static var boardBleed: CGFloat { columnInset - boardInset }
     /// 动作行行高（单机 actionGrid / reviewGrid 与联机动作区共用）
     static let actionRowHeight: CGFloat = 56
     /// 象棋棋盘高宽比：9 列 × 10 行 → 高 = 宽 × 10/9
     static let xiangqiHeightRatio: CGFloat = 10.0 / 9.0
 
-    /// 棋盘边长 = 可用宽度 − 左右留白。
-    /// 单机页正是靠 `padding(.horizontal, columnInset)` 让棋盘拿到这个宽度，
-    /// 联机页用同一个函数显式钉住，两页必然同尺寸。
+    /// 棋盘边长 = 可用宽度 − 棋盘左右留白。
+    /// 单机页与联机页都引用这一个函数，尺寸不可能再跑偏。
     static func boardSide(availableWidth: CGFloat) -> CGFloat {
-        max(0, availableWidth - columnInset * 2)
+        max(0, availableWidth - boardInset * 2)
     }
 
     /// 棋盘高度：围棋为正方形，象棋按 10/9 拉高

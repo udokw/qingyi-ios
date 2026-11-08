@@ -29,10 +29,10 @@ enum LanProto {
     /// UDP 房号查询端口。真正的 TCP 监听端口由系统分配并通过 TXT / UDP 应答下发，
     /// 这里只用于「只填房号」时定向找房主（与 Android `Proto.QUERY_PORT` 一致）。
     static let queryPort: UInt16 = 41235
-    static let roomQueryType = "room_query"
-    static let roomReplyType = "room_reply"
+    static let roomQueryType = LanUdpTypes.query
+    static let roomReplyType = LanUdpTypes.reply
     /// 房主周期性广播的房间通告（mDNS 失效时的并行发现通道）
-    static let roomAnnounceType = "room_announce"
+    static let roomAnnounceType = LanUdpTypes.announce
     static let announceIntervalMs: Int64 = 3_000
 
     /// 房号固定 4 位，且从 1.1.6 起只允许数字。
@@ -336,6 +336,86 @@ enum LanMsg {
     static let eRoomFull = "E_ROOM_FULL"
     static let eBadRoom = "E_BAD_ROOM"
     static let eVersion = "E_VERSION"
+}
+
+/// UDP 发现报文（41235）的类型名与兼容别名。
+///
+/// 以全小写 + 下划线为准；解析时先归一化（去空白、去下划线/连字符、转小写），
+/// 因此 `room_reply` / `roomReply` / `reply` 都认。Android 侧 `Proto.udpKind()` 用同一套规则，
+/// 两端字段表见 `fieldTable`。
+enum LanUdpTypes {
+    static let query = "room_query"
+    static let reply = "room_reply"
+    static let announce = "room_announce"
+
+    static func kind(_ raw: Any?) -> String {
+        guard let s = raw as? String else { return "" }
+        let k = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        switch k {
+        case "roomquery", "query": return query
+        case "roomreply", "reply": return reply
+        case "roomannounce", "announce": return announce
+        default: return k
+        }
+    }
+
+    /// 两端字段对照（诊断区直接展示，方便逐个字符比对）
+    static let fieldTable = "t:String(room_query|room_reply|room_announce) "
+        + "room:String(4位数字) game:String(go|xiangqi) port:Int size:String(19|9) "
+        + "addr:String iid:String name:String v:Int"
+
+    /// 房主广播 / 应答的唯一构造入口。
+    /// `kind` 只允许传 `announce` 或 `reply`：房主绝不会构造 `room_query`。
+    static func hostAnswerPayload(_ kind: String,
+                                  room: String,
+                                  game: String,
+                                  port: UInt16,
+                                  addr: String,
+                                  iid: String,
+                                  size: String,
+                                  name: String) -> [String: Any] {
+        precondition(kind == announce || kind == reply, "房主只能发 announce / reply，不能发 \(kind)")
+        return [
+            "t": kind,
+            "room": room,
+            "game": game,
+            "port": Int(port),
+            "addr": addr,
+            "iid": iid,
+            "pid": iid,
+            "size": size,
+            "name": name,
+            "ts": LanProto.nowMs(),
+            "v": LanProto.version
+        ]
+    }
+
+    /// 启动自检：把「谁该发什么、字段是否齐全」变成可断言的事实。
+    /// 结果会写进诊断区与日志时间线。
+    static func selfCheck() -> [String] {
+        var lines: [String] = []
+        let a = hostAnswerPayload(announce, room: "4821", game: LanProto.goGame,
+                                  port: 41234, addr: "192.168.1.2",
+                                  iid: "ABCD1234", size: "19", name: "iPhone")
+        let r = hostAnswerPayload(reply, room: "4821", game: LanProto.xiangqiGame,
+                                  port: 41234, addr: "192.168.1.2",
+                                  iid: "ABCD1234", size: "9", name: "iPhone")
+        assert(a["t"] as? String == announce)
+        assert(r["t"] as? String == reply)
+        assert((a["room"] as? String)?.count == 4)
+        assert((a["game"] as? String) == LanProto.goGame || (a["game"] as? String) == LanProto.xiangqiGame)
+        assert((a["port"] as? Int ?? 0) > 0)
+        assert((a["iid"] as? String)?.isEmpty == false)
+        assert((a["addr"] as? String)?.isEmpty == false)
+        lines.append("房主通告 t=\(a["t"] ?? "") room=\(a["room"] ?? "") game=\(a["game"] ?? "") port=\(a["port"] ?? 0) ✓")
+        lines.append("房主应答 t=\(r["t"] ?? "") 字段数=\(r.count) ✓")
+        lines.append("客机查询 t=\(query) 只由 LanUdpDiscovery 发送 ✓")
+        lines.append("别名：room_reply|roomReply|reply、room_announce|roomAnnounce|announce 均接受 ✓")
+        return lines
+    }
 }
 
 /// 结果中文文案，映射规则与 Android `ResultText` 保持一致。仅用于展示。

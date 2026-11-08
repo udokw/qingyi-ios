@@ -40,9 +40,11 @@ struct LanGameView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            // 棋盘边长与单机页同一套计算：屏宽 − 左右留白（GameLayout.columnInset）。
-            // 这里显式钉住宽度，动作行即使被撑高也不会再把棋盘挤小。
-            let boardSide = GameLayout.boardSide(availableWidth: proxy.size.width)
+            // 棋盘尺寸与整页纵向位置全部由同一组常量算出（见 metrics），
+            // 不再靠 VStack 自己压缩：这样「棋盘多大、离顶多远、按钮在哪」都是确定值。
+            let m = Self.metrics(width: proxy.size.width,
+                                 height: proxy.size.height,
+                                 isXiangqi: game == .xiangqi)
             ZStack {
                 PaperBackground(theme: theme)
 
@@ -63,40 +65,51 @@ struct LanGameView: View {
                         .padding(.top, 6)
                         .padding(.bottom, 4)
 
+                    // 棋盘顶到屏幕两侧：联机页用满整屏宽度（402pt），
+                    // 不再保留 boardInset，边线以外的留白交给棋盘自身绘制。
                     boardArea
-                        .frame(maxWidth: boardSide)
-                        .padding(.horizontal, GameLayout.columnInset)
-                        .padding(.top, 4)
+                        .frame(width: m.side, height: m.boardHeight)
+                        .padding(.top, Self.boardTopGap)
 
                     stateLine
                         .padding(.horizontal, 8)
                         .padding(.top, Self.boardToStateGap)
 
-                    if hub.linkDown && hub.state == .playing {
-                        Text("连接中断，正在重连…（计时已暂停，\(LanProto.reconnectGraceMs / 1000) 秒内未恢复将判负）")
-                            .font(.system(size: 11))
-                            .foregroundColor(theme.dangerText)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 4)
-                    }
-
-                    // 棋盘底边 → 动作区顶边的总间距：14(状态行上距) + 16(状态行) + 22 = 52，
-                    // 比单机页的 40 更松，避免状态行与按钮贴着棋盘挤成一堆。
+                    // 棋盘底边 → 动作区顶边的总间距：20(状态行上距) + 16(状态行) + 30 = 66。
+                    // 三个值都集中在下面的常量里，单机/联机都用同一套来源。
                     controls
                         .padding(.top, Self.stateToControlsGap)
 
-                    Spacer(minLength: 8)
+                    Spacer(minLength: Self.bottomSpacerMin)
 
                     footer
-                        .padding(.top, 8)
-                        .padding(.bottom, 6)
+                        .padding(.top, 6)
+                        .padding(.bottom, 4)
                 }
                 .padding(.top, 4)
 
                 if hub.state == .finished {
                     resultOverlay
+                }
+
+                // 重连提示改成浮层：它出现/消失都不参与 VStack 高度计算，
+                // 否则棋盘会跟着缩一下。
+                if hub.linkDown && hub.state == .playing {
+                    VStack {
+                        Spacer(minLength: 0)
+                        Text("连接中断，正在重连…（计时已暂停，\(LanProto.reconnectGraceMs / 1000) 秒内未恢复将判负）")
+                            .font(.system(size: 11))
+                            .foregroundColor(theme.dangerText)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(theme.isHara ? Color.white.opacity(0.92) : Color.white.opacity(0.55))
+                            )
+                            .padding(.horizontal, 24)
+                        Spacer().frame(height: 4)
+                    }
                 }
             }
         }
@@ -194,10 +207,59 @@ struct LanGameView: View {
     /// 页头固定高度 + 状态行固定行盒：两者共同保证棋盘顶边不动
     private static let headerHeight: CGFloat = 44
     private static let headerStatusLineHeight: CGFloat = 20
+    /// 棋盘上方的固定间距：棋盘整体相对上一版再往下挪
+    private static let boardTopGap: CGFloat = 8
     /// 棋盘底 → 状态行 / 状态行 → 动作区 的固定间距（不随文案或棋种变化）
-    private static let boardToStateGap: CGFloat = 14
-    private static let stateToControlsGap: CGFloat = 22
+    private static let boardToStateGap: CGFloat = 20
+    private static let stateToControlsGap: CGFloat = 30
+    /// 动作区与页脚之间至少保留的余量、底部安全余量（防止贴到 Home 指示条）
+    private static let bottomSpacerMin: CGFloat = 0
+    private static let bottomSafety: CGFloat = 2
     private static let headerSideReserve: CGFloat = 78
+    /// 页脚那行小字的高度（11pt 单行）
+    private static let footerTextHeight: CGFloat = 13
+    /// 动作区高度：发丝线 0.8 + 行高 + ... 与 controls 里的实现一一对应
+    private static func controlsHeight(isXiangqi: Bool) -> CGFloat {
+        let rows: CGFloat = isXiangqi ? 1 : 2
+        return 0.8 + rows * GameLayout.actionRowHeight + (rows - 1) * 0.8 + 0.8
+    }
+
+    /// 整页的纵向几何。除了棋盘以外的所有块都是固定值，
+    /// 所以棋盘顶边 y、状态行 y、动作区顶边 y 都可以直接算出来，不依赖内容撑高。
+    private struct Metrics {
+        let side: CGFloat
+        let boardHeight: CGFloat
+        let boardTop: CGFloat
+        let stateTop: CGFloat
+        let controlsTop: CGFloat
+    }
+
+    private static func metrics(width: CGFloat, height: CGFloat, isXiangqi: Bool) -> Metrics {
+        // 联机页棋盘直接吃满整屏宽度（左右各 0pt 留白），比单机页的 boardInset 再大 4pt。
+        let fullSide = width
+
+        // 棋盘以外的固定高度（顺序与 body 里的 VStack 完全一致）
+        let chromeTop: CGFloat = 4      // VStack 顶部 padding
+            + 2 + headerHeight          // 页头
+            + 10 + 16                   // 规则行
+            + 8 + 0.8                   // 发丝线
+            + 6 + 34 + 4                // 时钟行
+        let chromeBottom: CGFloat = boardToStateGap + 16   // 状态行
+            + stateToControlsGap + controlsHeight(isXiangqi: isXiangqi)
+            + bottomSpacerMin
+            + 6 + footerTextHeight + 4  // 页脚
+
+        let budget = max(0, height - chromeTop - boardTopGap - chromeBottom - bottomSafety)
+        let side: CGFloat = isXiangqi
+            ? min(fullSide, budget * 9 / 10)
+            : min(fullSide, budget)
+        let boardHeight = GameLayout.boardHeight(side: side, isXiangqi: isXiangqi)
+        let boardTop = chromeTop + boardTopGap
+        let stateTop = boardTop + boardHeight + boardToStateGap
+        let controlsTop = stateTop + 16 + stateToControlsGap
+        return Metrics(side: side, boardHeight: boardHeight,
+                       boardTop: boardTop, stateTop: stateTop, controlsTop: controlsTop)
+    }
 
     private var gameIdText: String { hub.gameId.isEmpty ? (game == .go ? LanProto.goGame : LanProto.xiangqiGame) : hub.gameId }
 
@@ -354,13 +416,19 @@ struct LanGameView: View {
     }
 
     private var stateLineText: String {
-        if !hub.notice.isEmpty { return hub.notice }
+        // 一过性提示（如「还没轮到你走棋」）只在几秒内显示，
+        // 其余时间必须回到权威信息：手数 + 最新一手。
+        if hub.noticeIsFresh { return hub.notice }
         if hub.state != .playing { return hub.state == .finished ? "对局已结束" : "等待对手加入…" }
+        if hub.scorePending { return hub.isHost ? "数子确认 · 请点「确认数子」" : "数子确认 · 等待房主" }
+        let base: String
         if hub.moveNo == 0 {
-            return game == .go ? "开局 · 黑先" : "开局 · 红先"
+            base = game == .go ? "开局 · 黑先" : "开局 · 红先"
+        } else {
+            base = hub.lastMoveText.isEmpty ? "第 \(hub.moveNo) 手" : "第 \(hub.moveNo) 手 · \(hub.lastMoveText)"
         }
-        let pass = hub.lastMoveText.isEmpty ? "" : " · \(hub.lastMoveText)"
-        return "第 \(hub.moveNo) 手\(pass)"
+        // 「还没轮到你走棋」只在我方不是当前手时出现（与右上角同源：session.turn == myColor）
+        return hub.isMyTurn ? base : "\(base) · 还没轮到你走棋"
     }
 
     // MARK: - 动作区（通栏 3 列 × 2 行，发丝线分隔）

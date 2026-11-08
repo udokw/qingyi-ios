@@ -28,6 +28,9 @@ struct GoGameView: View {
                             theme: theme) { x, y in
                     model.tap(x, y)
                 }
+                // 棋盘用比文字行更窄的留白（GameLayout.boardInset），
+                // 这里把父级 6pt 的留白抵消掉一部分，使实际边长 = 屏宽 − 2×2。
+                .padding(.horizontal, -GameLayout.boardBleed)
                 .padding(.top, 10)
 
                 if !theme.isHara {

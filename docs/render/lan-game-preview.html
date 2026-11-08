@@ -38,12 +38,12 @@
   .clock div.c { flex: 1; text-align: center; font-size: 18px; line-height: 22px; }
   .clock .v { width: 0.8px; height: 28px; }
 
-  /* 棋盘：屏宽 − 12（与 GameLayout.boardSide 一致） */
-  .board { margin: 4px 6px 0 6px; aspect-ratio: 1 / 1; position: relative; flex: none; }
+  /* 棋盘：联机页吃满整屏宽度（402pt，不再留 boardInset） */
+  .board { margin: 8px 0 0 0; aspect-ratio: 1 / 1; position: relative; flex: none; }
   .board.xq { aspect-ratio: 9 / 10; }
 
-  .stateline { font-size: 12px; line-height: 16px; height: 16px; text-align: center; padding: 14px 8px 0 8px; flex: none; }
-  .spacer { flex: 1; min-height: 8px; }
+  .stateline { font-size: 12px; line-height: 16px; height: 16px; text-align: center; padding: 20px 8px 0 8px; flex: none; }
+  .spacer { flex: 1; min-height: 0; }
 
   /* 动作行：固定 56px 高，与 GameLayout.actionRowHeight 一致 */
   .row { display: flex; height: 56px; align-items: center; }
@@ -52,7 +52,7 @@
   .cell .en { font-size: 9px; line-height: 12px; letter-spacing: 1px; margin-top: 3px; }
   .vline { width: 0.8px; align-self: stretch; }
 
-  .foot { font-size: 11px; letter-spacing: 2.6px; text-align: center; padding: 8px 0 6px 0; flex: none; }
+  .foot { font-size: 11px; letter-spacing: 2.6px; text-align: center; padding: 6px 0 4px 0; flex: none; }
 </style>
 </head>
 <body>
@@ -65,6 +65,7 @@ const params = new URLSearchParams(location.search);
 const id = params.get("theme") === "monument" ? "monument" : "hara";
 const game = params.get("game") === "xiangqi" ? "xiangqi" : "go";
 const statusText = params.get("status") || "等待对手落子";
+const stateText = params.get("stateline") || (game === "go" ? "开局 · 黑先" : "开局 · 红先");
 const simBug = params.get("sim") === "bug";
 const mySide = game === "go" ? "白" : "黑";
 
@@ -173,7 +174,7 @@ page.appendChild(board);
 const state = document.createElement("div");
 state.className = "stateline";
 state.style.color = T.sub;
-state.textContent = game === "go" ? "开局 · 黑先" : "开局 · 红先";
+state.textContent = stateText;
 page.appendChild(state);
 
 /* ---------- 通栏动作区（棋盘底边 → 动作区：围棋 40、象棋 50） ---------- */
@@ -183,7 +184,7 @@ const items = game === "go"
   : [["悔棋", "UNDO", ""], ["认输", "RESIGN", T.accent], ["离开", "LEAVE", ""]];
 
 const controls = document.createElement("div");
-controls.style.marginTop = "22px";
+controls.style.marginTop = "30px";
 let grid = `<div class="hair" style="background:${T.divider}"></div>`;
 for (let i = 0; i < items.length; i += 3) {
   grid += `<div class="row">`;

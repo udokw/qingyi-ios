@@ -57,8 +57,17 @@ final class LanHost {
     }
 
     func start(preferredPort: UInt16 = LanProto.defaultPort, tries: Int = LanProto.portTries) {
+        LanDiagnostics.shared.update {
+            $0.listenerState = "启动中"
+            $0.mdns.removeAll()
+            $0.txt = "—"
+        }
         queue.async {
             self.addr = LanProto.localIPv4Address()
+            LanDiagnostics.shared.update { $0.hostIP = self.addr }
+            LanLog.shared.add("建房", ok: nil,
+                              "room=\(self.roomCode) game=\(self.gameId) size=\(self.size) iid=\(self.iid)")
+            LanLog.shared.add("本机 IPv4", ok: !self.addr.isEmpty, self.addr.isEmpty ? "未取到" : self.addr)
             var list: [UInt16] = [preferredPort, 0]
             for port in LanProto.portCandidates where !list.contains(port) {
                 list.append(port)
@@ -81,6 +90,8 @@ final class LanHost {
         }
         let candidate = candidates[candidateIndex]
         currentCandidate = candidate
+        LanLog.shared.add("TCP 监听尝试", ok: nil,
+                          candidate == 0 ? "系统分配端口" : "端口 \(candidate)")
         let nwPort: NWEndpoint.Port
         if candidate == 0 {
             nwPort = .any
@@ -113,17 +124,29 @@ final class LanHost {
                 self.waitWork?.cancel()
                 self.waitWork = nil
                 self.port = l.port?.rawValue ?? candidate
+                LanDiagnostics.shared.update {
+                    $0.listenerState = "ready（候选 \(candidate == 0 ? "系统分配" : "\(candidate)")）"
+                    $0.tcpPort = self.port
+                }
+                LanLog.shared.add("TCP 监听成功", ok: true,
+                                  "端口 \(self.port) addr \(self.addr)（候选 \(candidate == 0 ? "系统分配" : "\(candidate)")）")
                 self.publishServices()
                 self.onReady?(self.port, self.addr)
             case .failed(let error):
                 l.cancel()
                 self.listener = nil
                 self.record(error)
+                LanDiagnostics.shared.update {
+                    $0.listenerState = "failed（候选 \(candidate)）：\(self.lastErrors.last ?? "")"
+                }
                 self.handleFailure(error, candidate: candidate)
             case .waiting(let error):
                 // 本地网络未授权、端口被别的进程占用时都可能停在 waiting。
                 // 记下真实错误，1.5s 仍未 ready 就换下一个候选（含系统分配端口）。
                 self.record(error)
+                LanDiagnostics.shared.update {
+                    $0.listenerState = "waiting（候选 \(candidate)）：\(self.lastErrors.last ?? "")"
+                }
                 self.waitWork?.cancel()
                 let item = DispatchWorkItem { [weak self, weak l] in
                     guard let self, let l, !self.stopped, self.listener === l else { return }
@@ -214,6 +237,7 @@ final class LanHost {
         }
         let line = "\(currentCandidate == 0 ? "系统分配端口" : "端口 \(currentCandidate)")：\(text)"
         NSLog("[LanHost] %@", line)
+        LanLog.shared.add("TCP 监听失败", ok: false, line)
         if !lastErrors.contains(line) { lastErrors.append(line) }
     }
 
@@ -250,6 +274,15 @@ final class LanHost {
         let txt = LanProto.txtData(txtDict(port: value))
         NSLog("[LanHost] 公告 Bonjour port=%d addr=%@ types=%@ txt=%@",
               Int(value), self.addr, types.joined(separator: ","), txtDict(port: value).description)
+        LanLog.shared.add("mDNS 公告请求", ok: nil,
+                          "types=\(types.joined(separator: ",")) name=\(name) SRV端口=\(value) addr=\(addr)")
+        LanDiagnostics.shared.update { snap in
+            snap.txt = self.txtDict(port: value)
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: " ")
+            for type in types { snap.mdns[type] = "publishing…" }
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.stopped else { return }
             for service in self.netServices {
@@ -271,6 +304,7 @@ final class LanHost {
     // MARK: - 连接
 
     private func accept(_ connection: NWConnection) {
+        LanLog.shared.add("TCP accept", ok: true, "来源 \(String(describing: connection.endpoint))")
         let client = LanConnection(connection, queue: queue)
         pending[client.id] = client
 
@@ -288,8 +322,10 @@ final class LanHost {
                 let ack = LanProto.message(LanMsg.probeAck, room: self.roomCode,
                                            from: "host", payload: self.probePayload)
                 client.send(ack, closeAfter: true)
+                LanLog.shared.add("收到 probe", ok: true, "已回 probe_ack")
                 return false
             }
+            LanLog.shared.add("收到首帧", ok: true, "type=\(LanProto.type(msg))")
             return self.attach(client)
         }
         client.start()
@@ -322,6 +358,7 @@ final class LanHost {
         guard guest === client else { return }
         guest = nil
         guestHandshaked = false
+        LanLog.shared.add("房主侧断开", ok: false, reason)
         onGuestChanged?(false)
     }
 
@@ -384,15 +421,26 @@ final class LanServiceDelegate: NSObject, NetServiceDelegate {
     func netServiceDidPublish(_ sender: NetService) {
         NSLog("[LanHost] Bonjour 已公告 type=%@ name=%@ port=%d",
               sender.type, sender.name, Int(sender.port))
+        LanDiagnostics.shared.setMDNS(type: sender.type,
+                                      state: "published（SRV 端口 \(sender.port)）")
+        LanLog.shared.add("mDNS 已发布", ok: true,
+                          "\(sender.type) name=\(sender.name) SRV端口=\(sender.port)")
     }
 
     func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
-        NSLog("[LanHost] Bonjour 公告失败 type=%@ name=%@ error=%@",
-              sender.type, sender.name,
-              String(describing: errorDict[NetService.errorCode]))
+        let code = errorDict[NetService.errorCode] ?? -1
+        let domain = errorDict[NetService.errorDomain]?.stringValue ?? "-"
+        NSLog("[LanHost] Bonjour 公告失败 type=%@ name=%@ error=%@ domain=%@",
+              sender.type, sender.name, String(describing: code), domain)
+        LanDiagnostics.shared.setMDNS(type: sender.type,
+                                      state: "failed（code \(code) \(domain)）")
+        LanLog.shared.add("mDNS 发布失败", ok: false,
+                          "\(sender.type) code=\(code) domain=\(domain)")
     }
 
     func netServiceDidStop(_ sender: NetService) {
         NSLog("[LanHost] Bonjour 已停止 type=%@ name=%@", sender.type, sender.name)
+        LanDiagnostics.shared.setMDNS(type: sender.type, state: "已停止")
+        LanLog.shared.add("mDNS 已停止", ok: nil, sender.type)
     }
 }

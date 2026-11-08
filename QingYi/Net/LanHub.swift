@@ -683,7 +683,34 @@ final class LanHub: ObservableObject {
     @Published private(set) var resultDetail = ""
     @Published private(set) var resultReason = ""
     @Published private(set) var lastError = ""
-    @Published private(set) var notice = ""
+    /// 一过性提示（「还没轮到你走棋」这类）。只在设置后的几秒内算有效，
+    /// 不能当常驻状态用 —— 否则会和「轮到你落子」的权威状态自相矛盾。
+    @Published private(set) var notice = "" {
+        didSet {
+            guard !notice.isEmpty else { return }
+            noticeAtMs = LanProto.uptimeMs()
+            // 过期后主动清空：不计时的对局没有 ticker 驱动重绘，
+            // 否则一过性提示会一直停在「还没轮到你走棋」上。
+            noticeClear?.cancel()
+            let text = notice
+            let work = DispatchWorkItem { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.notice == text else { return }
+                    self.notice = ""
+                }
+            }
+            noticeClear = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(Self.noticeTTLMs) / 1000,
+                                          execute: work)
+        }
+    }
+    private var noticeAtMs: Int64 = 0
+    private var noticeClear: DispatchWorkItem?
+    private static let noticeTTLMs: Int64 = 4000
+    /// 提示是否还在有效期内（页面据此决定显示提示还是「第 N 手」）
+    var noticeIsFresh: Bool {
+        !notice.isEmpty && LanProto.uptimeMs() - noticeAtMs < Self.noticeTTLMs
+    }
     @Published private(set) var incomingUndoFrom: String?
     @Published private(set) var clockTick = 0
     @Published private(set) var boardVersion = 0
@@ -785,6 +812,13 @@ final class LanHub: ObservableObject {
     // MARK: - 发现
 
     func startBrowsing(game: String) {
+        // 只有「客机 / 未建房」才允许跑发现（查询）循环。
+        // 房主若也跑这个循环，就会把自己的 41235 抢走、并广播 room_query，
+        // 别人永远收不到 room_announce —— 之前整轮排查就是被这个坑绕住的。
+        guard role != .host, host == nil else {
+            LanLog.shared.add("跳过发现循环", ok: false, "当前是房主角色，只发 room_announce")
+            return
+        }
         let d = LanDiscovery()
         d.gameFilter = game
         d.onRooms = { [weak self] list in
@@ -846,6 +880,14 @@ final class LanHub: ObservableObject {
         let newHost = LanHost(roomCode: roomCode, gameId: gameId, size: newSession.size,
                               hintsEnabled: hints)
         host = newHost
+        // 每次建房都从零开始统计，诊断区里的数字才对应这一次的房间
+        LanDiagnostics.shared.reset()
+        // 跨端字段自检：证明「房主只发 announce/reply，客机只发 query」
+        // 以及 room/game/port/iid/addr 都非空，直接显示在诊断区里。
+        let checkLines = LanUdpTypes.selfCheck()
+        LanDiagnostics.shared.update { $0.selfCheck = checkLines.joined(separator: " · ") }
+        LanLog.shared.add("跨端字段自检", ok: true,
+                          "房号 \(roomCode) 棋种 \(gameId) · " + checkLines.joined(separator: " / "))
         // 「只填房号」加入的兜底通道：UDP 广播查询，回包带真实端口
         let responder = LanQueryResponder(room: roomCode, game: gameId, iid: newHost.iid)
         queryResponder = responder
@@ -1577,7 +1619,11 @@ final class LanHub: ObservableObject {
 
     private func onHello(_ p: [String: Any]) {
         guard let session else { return }
+        LanLog.shared.add("收到 hello", ok: nil,
+                          "roomCode=\(LanProto.string(p, "roomCode")) game=\(LanProto.string(p, "game")) "
+                          + "device=\(LanProto.string(p, "deviceName")) v=\(LanProto.int(p, "protocolVersion", 0))")
         if roomCode.caseInsensitiveCompare(LanProto.string(p, "roomCode")) != .orderedSame {
+            LanLog.shared.add("hello 被拒", ok: false, "E_ROOM_CODE")
             sendHelloReject("E_ROOM_CODE", "房间码不对（本房间 \(roomCode)）")
             return
         }
@@ -1646,9 +1692,12 @@ final class LanHub: ObservableObject {
             "serverTime": LanProto.nowMs()
         ]
         guard host?.send(LanProto.message(LanMsg.helloAck, room: roomCode, from: "host", payload: ack)) == true else {
+            LanLog.shared.add("发出 hello_ack 失败", ok: false, "")
             notice = "回送握手消息失败，请确认对手仍在同一网络"
             return
         }
+        LanLog.shared.add("发出 hello_ack", ok: true,
+                          "yourColor=\(session.colorChar(guestColor)) size=\(session.size) komi=\(session.komi)")
         state = .lobby
         boardVersion += 1
     }
@@ -1656,6 +1705,7 @@ final class LanHub: ObservableObject {
     private func sendHelloReject(_ code: String, _ message: String) {
         let payload: [String: Any] = ["code": code, "message": message, "ok": false]
         host?.send(LanProto.message(LanMsg.helloReject, room: roomCode, from: "host", payload: payload))
+        LanLog.shared.add("发出 hello_reject", ok: false, "code=\(code) \(message)")
         notice = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.host?.closeGuest()
@@ -1998,6 +2048,8 @@ final class LanHub: ObservableObject {
     }
 
     private func tick() {
+        // 过期提示要真的清掉，否则「还没轮到你走棋」会一直挂在页面底部
+        if !notice.isEmpty && !noticeIsFresh { notice = "" }
         guard state == .playing else { return }
         if isHost, let clock, clock.active {
             clock.tick()

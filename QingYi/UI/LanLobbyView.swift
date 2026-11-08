@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 extension GameKind: Identifiable {
     var id: String { rawValue }
@@ -23,6 +24,10 @@ struct LanLobbyView: View {
     @State private var localError = ""
     @State private var selfTestBusy = false
     @State private var selfTestReport = ""
+    @State private var showDiagnostics = false
+    @ObservedObject private var diag = LanDiagnostics.shared
+    @ObservedObject private var lanLog = LanLog.shared
+    @State private var copiedHint = ""
 
     private var theme: Theme { app.theme }
     private var gameId: String { game == .go ? LanProto.goGame : LanProto.xiangqiGame }
@@ -381,6 +386,8 @@ struct LanLobbyView: View {
                 }
                 .opacity(hub.hasGuest ? 1 : 0.4)
                 .disabled(!hub.hasGuest)
+
+                diagnosticsPanel
             }
 
             ThemedActionButton(title: hub.state == .error ? "返回" : "取消", kind: .danger, theme: theme) {
@@ -391,6 +398,134 @@ struct LanLobbyView: View {
         .background(panelBackground)
     }
 
+    // MARK: - 网络诊断（房主页，默认收起）
+
+    /// 只读诊断：把「断在哪一层」变成可以直接截图给我的数字。
+    /// 判断方法：
+    /// - `Bonjour` 全部 published + `收到 room_query` 一直为 0 → 广播/组播被网络挡了；
+    /// - `收到 room_query` 在涨、`回出 room_reply` 也在涨，安卓仍搜不到 → 应答发出去了，问题在安卓侧；
+    /// - `UDP 监听` 是 bind 失败 → iOS 侧端口被占或权限问题。
+    private var diagnosticsPanel: some View {
+        let s = diag.snapshot
+        return VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showDiagnostics.toggle() }
+            } label: {
+                HStack(spacing: 0) {
+                    Text("网络诊断（安卓发现不到时点开）")
+                        .font(.system(size: 12))
+                        .foregroundColor(theme.sub)
+                    Spacer(minLength: 0)
+                    Text(showDiagnostics ? "−" : "+")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(theme.foot)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showDiagnostics {
+                VStack(alignment: .leading, spacing: 4) {
+                    diagLine("本机 IPv4", s.hostIP.isEmpty ? "未取到" : s.hostIP)
+                    diagLine("TCP 监听", s.tcpPort > 0 ? "\(s.listenerState) · 端口 \(s.tcpPort)" : s.listenerState)
+                    diagLine("UDP 监听", "\(s.udpStatus) · \(s.udpListen)")
+                    diagLine("socket 选项", s.udpOptions)
+                    diagLine("收到 room_query", "\(s.recvQueries) 条")
+                    diagLine("回出 room_reply", "\(s.sentReplies) 条")
+                    diagLine("广播 room_announce", "\(s.sentAnnounces) 个包")
+                    diagLine("广播目标", s.broadcast)
+                    diagLine("最后来源", s.lastFrom)
+                    diagLine("最近事件", s.lastEvent)
+                    ForEach(s.mdns.keys.sorted(), id: \.self) { type in
+                        diagLine("Bonjour \(type)", s.mdns[type] ?? "—")
+                    }
+                    diagLine("TXT", s.txt)
+                    diagLine("字段对照", s.fieldTable)
+                    diagLine("跨端自检", s.selfCheck)
+                    Text("本地网络权限：设置 → 隐私与安全性 → 本地网络 → 清弈 需开启。若「收到 room_query」一直是 0，说明安卓的广播没有到达 iOS。")
+                        .font(.system(size: 10))
+                        .foregroundColor(theme.foot)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 2)
+
+                timelineLog
+                    .padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 时间线日志：默认随诊断区展开，最近的在最上面；一次「复制全部」即可取走。
+    private var timelineLog: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("联机日志（最近 \(lanLog.entries.count) 条）")
+                    .font(.system(size: 10))
+                    .foregroundColor(theme.foot)
+                Spacer(minLength: 0)
+                Button {
+                    UIPasteboard.general.string = lanLog.fullText()
+                    copiedHint = "已复制"
+                } label: {
+                    Text(copiedHint.isEmpty ? "复制全部日志" : copiedHint)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(theme.title)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(theme.divider, lineWidth: 0.6)
+                        )
+                }
+                .buttonStyle(.plain)
+                Button {
+                    lanLog.clear()
+                    copiedHint = "已清空"
+                } label: {
+                    Text("清空")
+                        .font(.system(size: 11))
+                        .foregroundColor(theme.foot)
+                }
+                .buttonStyle(.plain)
+            }
+            ScrollView(showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(lanLog.entries.reversed()) { entry in
+                        Text(entry.line)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(theme.sub)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .frame(height: 150)
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(theme.divider, lineWidth: 0.5)
+            )
+            Text("日志同时写入 Documents/lan.log（文件 App → 我的 iPhone → 清弈）。")
+                .font(.system(size: 9))
+                .foregroundColor(theme.foot)
+        }
+    }
+
+    private func diagLine(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundColor(theme.foot)
+                .frame(width: 96, alignment: .leading)
+            Text(value.isEmpty ? "—" : value)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(theme.sub)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
     private var roomTitle: String {
         switch hub.state {
         case .hosting, .lobby: return hub.isHost ? "房间已创建" : "等待开局"
@@ -399,8 +534,6 @@ struct LanLobbyView: View {
         default: return "联机对弈"
         }
     }
-
-    // MARK: - 组件
 
     private func sectionTitle(_ text: String) -> some View {
         Text(text)

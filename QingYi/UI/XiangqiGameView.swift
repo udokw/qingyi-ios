@@ -30,6 +30,8 @@ struct XiangqiGameView: View {
                                      model.drag(from: GoPoint(x: fx, y: fy),
                                                 to: GoPoint(x: tx, y: ty))
                                  })
+                    // 与围棋页同一套棋盘留白（见 GameLayout.boardInset）
+                    .padding(.horizontal, -GameLayout.boardBleed)
                     .padding(.top, 8)
 
                 Text(model.moveLine)
