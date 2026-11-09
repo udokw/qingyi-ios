@@ -6,9 +6,9 @@
 //  暗棋启发式 AI。同步入口，不依赖 UI，可在后台线程调用。
 //
 //  暗棋是不完全信息博弈，本 AI 不做完全信息搜索：
-//  - 走子/吃子：模拟一步后用局面评估函数打分，并（中高段位）额外计算对手最佳吃子反击；
+//  - 走子/吃子：模拟一步后用“相对当前局面的净增益”打分，并（中高段位）额外计算对手最佳吃子反击；
 //  - 翻子：使用“剩余暗子池”的期望值，不读取任何暗子的具体身份；
-//  - 评估包含子力、机动性、互相威胁、將的安全、行动节奏；
+//  - 评估包含子力、机动性、互相威胁、將的安全；
 //  - 接近无进展和棋阈值时提高翻子意愿，避免被动判和。
 //
 //  段位 1~10：1 纯随机；2~3 大噪声；4~5 中噪声；6~8 小噪声 + 反击检查；
@@ -155,7 +155,11 @@ final class BanqiAi {
         if !sim.play(move) {
             return -10000
         }
-        var score = evaluate(game: sim, seat: seat)
+        // 与翻子同一尺度：只看这一步带来的净增益，再给和翻子相同的行动分。
+        // 旧实现返回模拟后的“绝对局面分”，而 evaluate 里含“轮到对手 -0.35 / 轮到己方 +0.35”
+        // 的行棋节奏项，任何一步走子都会比不走的基准低约 0.7；再叠加绝对子力差，
+        // 走子/吃子的分数往往低于翻子的 +0.20，高段位（噪声趋近 0）于是只会翻子。
+        var score = evaluate(game: sim, seat: seat) - evaluate(game: game, seat: seat) + 0.20
         if level >= 6 && !sim.isOver {
             score += opponentBestCaptureDelta(game: sim, seat: seat) * 0.85
         }
@@ -211,8 +215,7 @@ final class BanqiAi {
         let enemyMoves = game.movesForColor(enemyColor).count
         score += 0.16 * Double(myMoves - enemyMoves)
         score += attackScore(game: game, color: myColor) + attackScore(game: game, color: enemyColor) * -1
-        // 行动节奏：轮到己方略加分
-        score += game.turnSeat == seat ? 0.35 : -0.35
+        // 行棋节奏项已移除：走子评估改用“相对当前局面的增益”，不再比较含轮次差的绝对分。
         return score
     }
 

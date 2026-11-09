@@ -114,10 +114,12 @@ struct MainView: View {
         .fullScreenCover(item: $goSetup) { setup in
             GoGameView(setup: setup)
                 .environmentObject(app)
+                .keepsScreenAwake()
         }
         .fullScreenCover(item: $xqSetup) { setup in
             XiangqiGameView(setup: setup)
                 .environmentObject(app)
+                .keepsScreenAwake()
         }
         .fullScreenCover(item: $lanKind) { kind in
             LanLobbyView(game: kind)
@@ -126,10 +128,12 @@ struct MainView: View {
         .fullScreenCover(item: $gomokuSetup) { setup in
             GomokuGameView(setup: setup)
                 .environmentObject(app)
+                .keepsScreenAwake()
         }
         .fullScreenCover(item: $banqiSetup) { setup in
             BanqiGameView(setup: setup)
                 .environmentObject(app)
+                .keepsScreenAwake()
         }
         .confirmationDialog("双人对弈", isPresented: Binding(
             get: { localDialogKind != nil },

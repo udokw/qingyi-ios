@@ -90,6 +90,7 @@ final class GomokuGameModel: ObservableObject {
         let code = game.tryPlay(x, y)
         switch code {
         case GomokuGame.playOK:
+            SoundPlayer.shared.playStone()
             hint = nil
             clearTransient()
             sync()
@@ -145,6 +146,7 @@ final class GomokuGameModel: ObservableObject {
                 if !moved { moved = self.playFirstLegalMove() }
                 if moved {
                     self.clearTransient()
+                    SoundPlayer.shared.playStone()
                 } else if !self.game.isFull() {
                     self.transientStatus = "AI 没有合法落点，请悔棋或开新局"
                 }

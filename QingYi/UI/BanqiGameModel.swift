@@ -90,6 +90,7 @@ final class BanqiGameModel: ObservableObject {
         // 已选中 → 尝试走子 / 吃子
         if selection != nil {
             if game.play(fromX: selection!.x, fromY: selection!.y, toX: x, toY: y) {
+                SoundPlayer.shared.playMove()
                 afterAction()
                 return
             }
@@ -104,6 +105,7 @@ final class BanqiGameModel: ObservableObject {
         // 未选中 → 点暗子翻子
         if p == BanqiGame.hidden || (p != BanqiGame.empty && !up) {
             if game.flip(x: x, y: y) {
+                SoundPlayer.shared.playMove()
                 afterAction()
                 return
             }
@@ -181,7 +183,9 @@ final class BanqiGameModel: ObservableObject {
                 guard let self, self.aiToken == token else { return }
                 self.thinking = false
                 guard let move, !self.game.isOver else { return }
-                _ = self.game.play(move)
+                if self.game.play(move) {
+                    SoundPlayer.shared.playMove()
+                }
                 self.clearSelection()
                 self.sync()
                 self.presentEndIfNeeded()

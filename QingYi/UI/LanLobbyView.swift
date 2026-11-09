@@ -39,11 +39,14 @@ struct LanLobbyView: View {
             PaperBackground(theme: theme)
 
             if hub.state == .playing || hub.state == .finished {
-                switch game {
-                case .gomoku: LanGomokuGameView()
-                case .banqi: LanBanqiGameView()
-                default: LanGameView(game: game)
+                Group {
+                    switch game {
+                    case .gomoku: LanGomokuGameView()
+                    case .banqi: LanBanqiGameView()
+                    default: LanGameView(game: game)
+                    }
                 }
+                .keepsScreenAwake()
             } else {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 14) {

@@ -112,12 +112,31 @@ jobs:
                                         turn: over.turn, isOver: over.isOver,
                                         isFull: over.isFull()), "终局后不再叫 AI")
 
+          // 7. 暗棋: 高段位不能只会翻子 —— 有白送的吃子时必须吃.
+          //    局面: 红车(0,0) 紧贴黑卒(0,1), 红方另有將; 黑方有將/士与两枚暗子.
+          //    红方(座位 1)轮到走, 旧实现走"绝对局面分"会一直翻子, 修复后应按净增益吃卒.
+          let bg = BanqiGame()
+          check(bg.loadFen("R...xx../p......./......../K.....ka 1 rb 0 20 0"),
+                "加载暗棋测试局面")
+          let bm = BanqiAi.choose(in: bg, level: 10)
+          if let bm {
+              print("  暗棋 AI(10 段): flip=\(bm.flip) (\(bm.x),\(bm.y))->(\(bm.tx),\(bm.ty)) captured=\(bm.captured)")
+          } else {
+              print("  暗棋 AI(10 段): nil")
+          }
+          check(bm != nil, "暗棋 AI 有落点")
+          check(bm?.flip == false, "暗棋高段 AI 不只会翻子")
+          check(bm?.tx == 0 && bm?.ty == 1, "暗棋高段 AI 吃掉相邻黑卒")
+
           print("ALL PASS")
           SWIFT
           swiftc -O \
             QingYi/Gomoku/GomokuGame.swift \
             QingYi/Gomoku/GomokuAi.swift \
             QingYi/Gomoku/GomokuSoloTurn.swift \
+            QingYi/Banqi/BanqiGame.swift \
+            QingYi/Banqi/BanqiOptions.swift \
+            QingYi/Banqi/BanqiAi.swift \
             ai-selftest/main.swift -o aiselftest
           ./aiselftest
 

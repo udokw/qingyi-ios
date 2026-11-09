@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 发丝线
 
@@ -362,5 +363,33 @@ struct GameActionCell: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(selected ? theme.primaryBg : Color.clear)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - 对局亮屏
+
+/// 对局期间禁止自动锁屏，离开对局或退到后台时恢复系统默认。
+/// 用在所有对局页（围棋 / 象棋 / 五子棋 / 暗棋，单机 / 本地双人 / 联机）。
+struct KeepScreenAwakeModifier: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { apply(scenePhase == .active) }
+            .onDisappear { apply(false) }
+            .onChange(of: scenePhase) { phase in apply(phase == .active) }
+    }
+
+    private func apply(_ on: Bool) {
+        // 切前后台的回调可能发生在渲染事务中，延后一拍再改全局状态。
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = on
+        }
+    }
+}
+
+extension View {
+    func keepsScreenAwake() -> some View {
+        modifier(KeepScreenAwakeModifier())
     }
 }

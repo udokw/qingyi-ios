@@ -2107,8 +2107,14 @@ final class LanHub: ObservableObject {
     /// 之前联机路径完全没有调用 SoundPlayer，所以双方都听不到声音。
     private func playMoveSound() {
         guard state == .playing else { return }
-        if gameId == LanProto.goGame {
+        if gameId == LanProto.goGame || gameId == LanProto.gomokuGame {
+            // 围棋 / 五子棋共用围棋落子声
             SoundPlayer.shared.playStone()
+            return
+        }
+        if gameId == LanProto.banqiGame {
+            // 暗棋翻子 / 走子 / 吃子共用象棋落子声
+            SoundPlayer.shared.playMove()
             return
         }
         if let game = session?.xiangqi, game.inCheck(game.turn) {
